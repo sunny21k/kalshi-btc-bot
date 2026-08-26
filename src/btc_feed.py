@@ -1,25 +1,13 @@
 import json
+import ssl
 import websocket
 
 
-def on_message(ws, message):
-    data = json.loads(message)
-
-    if data.get("type") == "ticker":
-        price = float(data["price"])
-        print(f"BTC: ${price:,.2f}")
-
-
-def on_error(ws, error):
-    print("Error:", error)
-
-
-def on_close(ws, close_status_code, close_msg):
-    print("Connection closed")
-
-
-def on_open(ws):
-    print("Connected to Coinbase BTC feed")
+def get_btc_price():
+    ws = websocket.create_connection(
+        "wss://ws-feed.exchange.coinbase.com",
+        sslopt={"cert_reqs": ssl.CERT_REQUIRED}
+    )
 
     subscribe = {
         "type": "subscribe",
@@ -29,13 +17,24 @@ def on_open(ws):
 
     ws.send(json.dumps(subscribe))
 
+    while True:
+        message = json.loads(ws.recv())
 
-ws = websocket.WebSocketApp(
-    "wss://ws-feed.exchange.coinbase.com",
-    on_open=on_open,
-    on_message=on_message,
-    on_error=on_error,
-    on_close=on_close,
-)
+        if message.get("type") == "ticker":
+            price = float(message["price"])
+            ws.close()
+            return price
 
-ws.run_forever()
+
+def main():
+    while True:
+        try:
+            price = get_btc_price()
+            print(f"BTC: ${price:,.2f}")
+        except KeyboardInterrupt:
+            print("\nConnection closed")
+            break
+
+
+if __name__ == "__main__":
+    main()
