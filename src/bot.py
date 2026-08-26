@@ -12,6 +12,7 @@ from strategy import (
     make_decision,
 )
 from data_logger import log_market_data
+from paper_execution import record_paper_trade
 
 
 SERIES = "KXBTC15M"
@@ -133,8 +134,11 @@ def main():
             )
 
             if previous_btc_price is None:
+
                 price_change = Decimal("0")
+
             else:
+
                 price_change = calculate_btc_change(
                     btc_price,
                     previous_btc_price
@@ -165,23 +169,22 @@ def main():
                 edge = None
                 decision = "WAIT"
 
-
             seconds_remaining = get_seconds_remaining(
                 market
             )
 
             log_market_data(
-            ticker=ticker,
-            btc_price=btc_price,
-            btc_change=price_change,
-            signal=signal,
-            model_probability=model_probability,
-            yes_bid=yes_bid,
-            yes_ask=yes_ask,
-            spread=spread,
-            edge=edge,
-            seconds_remaining=seconds_remaining,
-)
+                ticker=ticker,
+                btc_price=btc_price,
+                btc_change=price_change,
+                signal=signal,
+                model_probability=model_probability,
+                yes_bid=yes_bid,
+                yes_ask=yes_ask,
+                spread=spread,
+                edge=edge,
+                seconds_remaining=seconds_remaining,
+            )
 
             print()
             print("=" * 60)
@@ -253,6 +256,31 @@ def main():
                 print(
                     f"Decision: {decision}"
                 )
+
+                # PAPER TRADING ONLY
+                if decision == "BUY":
+
+                    trade_recorded = record_paper_trade(
+                        ticker=ticker,
+                        prediction=signal,
+                        entry_price=yes_ask / Decimal("100"),
+                        contracts=1,
+                    )
+
+                    if trade_recorded:
+
+                        print()
+                        print("PAPER TRADE EXECUTED")
+
+                        print(
+                            f"Bought 1 YES @ "
+                            f"${yes_ask / Decimal('100'):.4f}"
+                        )
+
+                        print(
+                            f"Cost: "
+                            f"${yes_ask / Decimal('100'):.4f}"
+                        )
 
             else:
 

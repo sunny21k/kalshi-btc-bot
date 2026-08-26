@@ -1,4 +1,4 @@
-from src.kalshi_api import get_market
+from kalshi_api import get_market
 
 
 def get_market_result(ticker):
