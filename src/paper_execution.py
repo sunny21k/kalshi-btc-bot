@@ -18,10 +18,15 @@ def initialize_trade_file():
         writer.writerow([
             "timestamp",
             "ticker",
+            "side",
             "prediction",
             "entry_price",
+            "model_probability",
+            "edge",
             "contracts",
             "cost",
+            "result",
+            "profit_loss",
         ])
 
 
@@ -40,8 +45,11 @@ def has_traded(ticker):
 
 def record_paper_trade(
     ticker,
+    side,
     prediction,
     entry_price,
+    model_probability,
+    edge,
     contracts=1,
 ):
     initialize_trade_file()
@@ -57,10 +65,15 @@ def record_paper_trade(
         writer.writerow([
             datetime.now(timezone.utc).isoformat(),
             ticker,
+            side,
             prediction,
             entry_price,
+            model_probability,
+            edge,
             contracts,
             cost,
+            "",
+            "",
         ])
 
     return True

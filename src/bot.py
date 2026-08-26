@@ -85,7 +85,7 @@ def get_yes_quote(orderbook):
     no_levels = orderbook_fp.get("no_dollars", [])
 
     if not yes_levels or not no_levels:
-        return None, None, None
+        return None, None, None, None
 
     yes_bid = max(
         price_to_cents(level[0])
@@ -98,10 +98,11 @@ def get_yes_quote(orderbook):
     )
 
     yes_ask = Decimal("100") - no_bid
+    no_ask = Decimal("100") - yes_bid
 
     spread = yes_ask - yes_bid
 
-    return yes_bid, yes_ask, spread
+    return yes_bid, yes_ask, no_bid, no_ask, spread
 
 
 def main():
@@ -129,9 +130,13 @@ def main():
 
             orderbook = get_orderbook(ticker)
 
-            yes_bid, yes_ask, spread = get_yes_quote(
-                orderbook
-            )
+            (
+                yes_bid,
+                yes_ask,
+                no_bid,
+                no_ask,
+                spread,
+            ) = get_yes_quote(orderbook)
 
             if previous_btc_price is None:
 
@@ -151,23 +156,36 @@ def main():
                 price_change
             )
 
+            edge = None
+            decision = "WAIT"
+
             if yes_ask is not None:
 
-                edge = calculate_edge(
-                    model_probability,
-                    yes_ask
-                )
+                if signal == "UP":
+
+                    edge = calculate_edge(
+                        model_probability,
+                        yes_ask
+                    )
+
+                elif signal == "DOWN":
+
+                    no_probability = (
+                        Decimal("1")
+                        - model_probability
+                    )
+
+                    edge = calculate_edge(
+                        no_probability,
+                        no_ask
+                    )
 
                 decision = make_decision(
                     signal,
                     model_probability,
-                    yes_ask
+                    yes_ask,
+                    no_ask,
                 )
-
-            else:
-
-                edge = None
-                decision = "WAIT"
 
             seconds_remaining = get_seconds_remaining(
                 market
@@ -246,24 +264,56 @@ def main():
                 )
 
                 print(
-                    f"Spread: {spread:.1f}c"
+                    f"NO Bid: {no_bid:.1f}c"
                 )
 
                 print(
-                    f"Edge: {edge * 100:.1f}%"
+                    f"NO Ask: {no_ask:.1f}c"
                 )
+
+                print(
+                    f"Spread: {spread:.1f}c"
+                )
+
+                if edge is not None:
+
+                    print(
+                        f"Edge: {edge * 100:.1f}%"
+                    )
 
                 print(
                     f"Decision: {decision}"
                 )
 
                 # PAPER TRADING ONLY
-                if decision == "BUY":
+                if decision in ("BUY YES", "BUY NO"):
+
+                    if decision == "BUY YES":
+
+                        side = "YES"
+                        entry_price = (
+                            yes_ask / Decimal("100")
+                        )
+
+                    else:
+
+                        side = "NO"
+                        entry_price = (
+                            no_ask / Decimal("100")
+                        )
 
                     trade_recorded = record_paper_trade(
                         ticker=ticker,
+                        side=side,
                         prediction=signal,
-                        entry_price=yes_ask / Decimal("100"),
+                        entry_price=entry_price,
+                        model_probability=(
+                            model_probability
+                            if side == "YES"
+                            else Decimal("1")
+                            - model_probability
+                        ),
+                        edge=edge,
                         contracts=1,
                     )
 
@@ -273,13 +323,17 @@ def main():
                         print("PAPER TRADE EXECUTED")
 
                         print(
-                            f"Bought 1 YES @ "
-                            f"${yes_ask / Decimal('100'):.4f}"
+                            f"Side: {side}"
+                        )
+
+                        print(
+                            f"Bought 1 {side} @ "
+                            f"${entry_price:.4f}"
                         )
 
                         print(
                             f"Cost: "
-                            f"${yes_ask / Decimal('100'):.4f}"
+                            f"${entry_price:.4f}"
                         )
 
             else:
