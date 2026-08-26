@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 
 from btc_feed import get_btc_price
 from kalshi_api import get_markets_for_series, get_orderbook
+from strategy import add_price, get_signal
 
 
 SERIES = "KXBTC15M"
@@ -16,6 +17,7 @@ def get_next_market():
         return None
 
     markets.sort(key=lambda m: m.get("close_time", ""))
+
     return markets[0]
 
 
@@ -51,6 +53,7 @@ def seconds_remaining(close_time):
 def format_time(seconds):
     minutes = seconds // 60
     seconds = seconds % 60
+
     return f"{minutes}m {seconds}s"
 
 
@@ -60,6 +63,10 @@ def main():
     while True:
         try:
             btc_price = get_btc_price()
+
+            add_price(btc_price)
+            signal = get_signal()
+
             market = get_next_market()
 
             if not market:
@@ -81,10 +88,13 @@ def main():
             print("=" * 60)
 
             print(f"BTC Price: ${btc_price:,.2f}")
+            print(f"Signal: {signal}")
+
             print()
             print(f"Market: {ticker}")
             print(f"Close: {close_time}")
             print(f"Time Remaining: {format_time(remaining)}")
+
             print()
 
             if yes_bid is not None:
