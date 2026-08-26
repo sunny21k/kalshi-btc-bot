@@ -1,120 +1,279 @@
 import time
 from datetime import datetime, timezone
+from decimal import Decimal
 
 from btc_feed import get_btc_price
 from kalshi_api import get_markets_for_series, get_orderbook
-from strategy import add_price, get_signal
+from strategy import (
+    calculate_btc_change,
+    get_signal,
+    estimate_probability,
+    calculate_edge,
+    make_decision,
+)
+from data_logger import log_market_data
 
 
 SERIES = "KXBTC15M"
+POLL_SECONDS = 5
 
 
-def get_next_market():
+def parse_close_time(market):
+    raw = market.get("close_time")
+
+    if not raw:
+        return None
+
+    return datetime.fromisoformat(
+        raw.replace("Z", "+00:00")
+    )
+
+
+def get_seconds_remaining(market):
+    close_time = parse_close_time(market)
+
+    if close_time is None:
+        return None
+
+    return (
+        close_time - datetime.now(timezone.utc)
+    ).total_seconds()
+
+
+def get_current_market():
     data = get_markets_for_series(SERIES)
+
     markets = data.get("markets", [])
 
     if not markets:
         return None
 
-    markets.sort(key=lambda m: m.get("close_time", ""))
+    now = datetime.now(timezone.utc)
 
-    return markets[0]
+    valid_markets = []
+
+    for market in markets:
+        close_time = parse_close_time(market)
+
+        if close_time and close_time > now:
+            valid_markets.append(market)
+
+    if not valid_markets:
+        return None
+
+    valid_markets.sort(
+        key=lambda market: parse_close_time(market)
+    )
+
+    return valid_markets[0]
 
 
-def get_quote(orderbook):
-    book = orderbook.get("orderbook_fp", {})
+def price_to_cents(price):
+    price = Decimal(str(price))
 
-    yes = book.get("yes_dollars", [])
-    no = book.get("no_dollars", [])
+    if price <= Decimal("1"):
+        return price * Decimal("100")
 
-    if not yes or not no:
+    return price
+
+
+def get_yes_quote(orderbook):
+    orderbook_fp = orderbook.get("orderbook_fp", {})
+
+    yes_levels = orderbook_fp.get("yes_dollars", [])
+    no_levels = orderbook_fp.get("no_dollars", [])
+
+    if not yes_levels or not no_levels:
         return None, None, None
 
-    yes_bid = max(float(level[0]) for level in yes)
-    no_bid = max(float(level[0]) for level in no)
+    yes_bid = max(
+        price_to_cents(level[0])
+        for level in yes_levels
+    )
 
-    yes_ask = 1 - no_bid
+    no_bid = max(
+        price_to_cents(level[0])
+        for level in no_levels
+    )
+
+    yes_ask = Decimal("100") - no_bid
+
     spread = yes_ask - yes_bid
 
     return yes_bid, yes_ask, spread
 
 
-def seconds_remaining(close_time):
-    close = datetime.fromisoformat(
-        close_time.replace("Z", "+00:00")
-    )
-
-    return max(
-        0,
-        int((close - datetime.now(timezone.utc)).total_seconds())
-    )
-
-
-def format_time(seconds):
-    minutes = seconds // 60
-    seconds = seconds % 60
-
-    return f"{minutes}m {seconds}s"
-
-
 def main():
+
     print("Starting BTC + Kalshi bot...")
 
+    previous_btc_price = None
+
     while True:
+
         try:
-            btc_price = get_btc_price()
 
-            add_price(btc_price)
-            signal = get_signal()
+            btc_price = Decimal(
+                str(get_btc_price())
+            )
 
-            market = get_next_market()
+            market = get_current_market()
 
-            if not market:
-                print("No open market found.")
-                time.sleep(5)
+            if market is None:
+                print("No active market found.")
+                time.sleep(POLL_SECONDS)
                 continue
 
             ticker = market["ticker"]
-            close_time = market["close_time"]
 
             orderbook = get_orderbook(ticker)
 
-            yes_bid, yes_ask, spread = get_quote(orderbook)
+            yes_bid, yes_ask, spread = get_yes_quote(
+                orderbook
+            )
 
-            remaining = seconds_remaining(close_time)
+            if previous_btc_price is None:
+                price_change = Decimal("0")
+            else:
+                price_change = calculate_btc_change(
+                    btc_price,
+                    previous_btc_price
+                )
 
-            print("\n" + "=" * 60)
+            signal = get_signal(price_change)
+
+            model_probability = estimate_probability(
+                signal,
+                price_change
+            )
+
+            if yes_ask is not None:
+
+                edge = calculate_edge(
+                    model_probability,
+                    yes_ask
+                )
+
+                decision = make_decision(
+                    signal,
+                    model_probability,
+                    yes_ask
+                )
+
+            else:
+
+                edge = None
+                decision = "WAIT"
+
+
+            seconds_remaining = get_seconds_remaining(
+                market
+            )
+
+            log_market_data(
+            ticker=ticker,
+            btc_price=btc_price,
+            btc_change=price_change,
+            signal=signal,
+            model_probability=model_probability,
+            yes_bid=yes_bid,
+            yes_ask=yes_ask,
+            spread=spread,
+            edge=edge,
+            seconds_remaining=seconds_remaining,
+)
+
+            print()
+            print("=" * 60)
             print("BTC 15M BOT")
             print("=" * 60)
 
-            print(f"BTC Price: ${btc_price:,.2f}")
-            print(f"Signal: {signal}")
+            print(
+                f"BTC Price: ${btc_price:,.2f}"
+            )
+
+            print(
+                f"BTC Change: {price_change:.4f}%"
+            )
+
+            print(
+                f"Signal: {signal}"
+            )
+
+            print(
+                f"Model Probability: "
+                f"{model_probability * 100:.1f}%"
+            )
 
             print()
-            print(f"Market: {ticker}")
-            print(f"Close: {close_time}")
-            print(f"Time Remaining: {format_time(remaining)}")
+
+            print(
+                f"Market: {ticker}"
+            )
+
+            print(
+                f"Close: {market.get('close_time')}"
+            )
+
+            if seconds_remaining is not None:
+
+                minutes = int(
+                    max(seconds_remaining, 0) // 60
+                )
+
+                seconds = int(
+                    max(seconds_remaining, 0) % 60
+                )
+
+                print(
+                    f"Time Remaining: "
+                    f"{minutes}m {seconds}s"
+                )
 
             print()
 
             if yes_bid is not None:
-                print(f"YES Bid: {yes_bid * 100:.0f}c")
-                print(f"YES Ask: {yes_ask * 100:.0f}c")
-                print(f"Spread: {(yes_ask - yes_bid) * 100:.1f}c")
+
+                print(
+                    f"YES Bid: {yes_bid:.1f}c"
+                )
+
+                print(
+                    f"YES Ask: {yes_ask:.1f}c"
+                )
+
+                print(
+                    f"Spread: {spread:.1f}c"
+                )
+
+                print(
+                    f"Edge: {edge * 100:.1f}%"
+                )
+
+                print(
+                    f"Decision: {decision}"
+                )
+
             else:
+
                 print("Order book unavailable")
 
             print("=" * 60)
 
-            time.sleep(5)
+            previous_btc_price = btc_price
+
+            time.sleep(POLL_SECONDS)
 
         except KeyboardInterrupt:
+
             print("\nBot stopped.")
             break
 
         except Exception as e:
+
             print(f"Error: {e}")
-            time.sleep(5)
+
+            time.sleep(POLL_SECONDS)
 
 
 if __name__ == "__main__":

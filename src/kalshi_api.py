@@ -71,14 +71,15 @@ def request(method, path, *, params=None, json=None):
     return response.json()
 
 
-def get_markets_for_series(series_ticker):
+def get_markets_for_series(series_ticker, status="open"):
     path = "/trade-api/v2/markets"
+
     return request(
         "GET",
         path,
         params={
             "series_ticker": series_ticker,
-            "status": "open",
+            "status": status,
             "limit": 100,
         },
     )
@@ -86,6 +87,10 @@ def get_markets_for_series(series_ticker):
 
 def get_orderbook(ticker):
     path = f"/trade-api/v2/markets/{ticker}/orderbook"
+    return request("GET", path)
+
+def get_market(ticker):
+    path = f"/trade-api/v2/markets/{ticker}"
     return request("GET", path)
 
 
