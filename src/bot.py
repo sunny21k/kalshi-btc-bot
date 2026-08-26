@@ -85,7 +85,7 @@ def get_yes_quote(orderbook):
     no_levels = orderbook_fp.get("no_dollars", [])
 
     if not yes_levels or not no_levels:
-        return None, None, None, None
+        return None, None, None, None, None
 
     yes_bid = max(
         price_to_cents(level[0])
