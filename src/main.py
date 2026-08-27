@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
 
-from kalshi_api import create_order, get_markets_for_series, get_orderbook
+from kalshi_api import get_markets_for_series, get_orderbook
 
 
 DEFAULT_SERIES = "KXBTC15M"
@@ -20,7 +20,6 @@ def parse_args():
     parser.add_argument("--min-seconds-to-close", type=int, default=60)
     parser.add_argument("--poll-seconds", type=int, default=15)
     parser.add_argument("--once", action="store_true")
-    parser.add_argument("--execute", action="store_true", help="Actually place orders")
     return parser.parse_args()
 
 
@@ -187,24 +186,11 @@ def scan_once(args):
     price = cents_to_dollars(quote["best_yes_ask"])
     client_order_id = f"btc15m-{uuid.uuid4()}"
 
-    if not args.execute:
-        print(
-            "Dry run: would buy "
-            f"{args.count} YES on {ticker} at ${price:.4f} IOC "
-            f"(client_order_id={client_order_id})"
-        )
-        return
-
-    response = create_order(
-        ticker,
-        side="bid",
-        count=args.count,
-        price=price,
-        client_order_id=client_order_id,
-        time_in_force="immediate_or_cancel",
-        exchange_index=market.get("exchange_index"),
+    print(
+        "Paper-only dry run: would buy "
+        f"{args.count} YES on {ticker} at ${price:.4f} IOC "
+        f"(client_order_id={client_order_id})"
     )
-    print(f"Order response: {response}")
 
 
 def main():

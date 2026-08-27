@@ -3,6 +3,7 @@ import os
 from datetime import datetime, timezone
 
 from outcome_tracker import get_market_result, prediction_was_correct
+from paper_execution import update_paper_trade_results
 
 
 DATA_FILE = "data/market_data.csv"
@@ -43,8 +44,8 @@ def get_completed_predictions():
             if signal not in ["UP", "DOWN"]:
                 continue
 
-            # Keep the latest prediction for each market
-            predictions[ticker] = signal
+            if ticker not in predictions:
+                predictions[ticker] = signal
 
     return predictions
 
@@ -115,7 +116,9 @@ if __name__ == "__main__":
     print("Checking completed BTC markets...")
     print()
 
+    paper_count = update_paper_trade_results(get_market_result)
     count = track_completed_markets()
 
     print()
+    print(f"Paper trades settled: {paper_count}")
     print(f"New results recorded: {count}")

@@ -69,36 +69,48 @@ def get_current_market():
     return valid_markets[0]
 
 
-def price_to_cents(price):
+def price_to_probability(price):
     price = Decimal(str(price))
 
     if price <= Decimal("1"):
-        return price * Decimal("100")
+        return price
 
-    return price
+    return price / Decimal("100")
+
+
+def level_price(level):
+    if isinstance(level, dict):
+        return level.get("price")
+
+    return level[0]
 
 
 def get_yes_quote(orderbook):
     orderbook_fp = orderbook.get("orderbook_fp", {})
+    legacy_orderbook = orderbook.get("orderbook") or orderbook
 
-    yes_levels = orderbook_fp.get("yes_dollars", [])
-    no_levels = orderbook_fp.get("no_dollars", [])
+    yes_levels = orderbook_fp.get("yes_dollars") or legacy_orderbook.get("yes") or []
+    no_levels = orderbook_fp.get("no_dollars") or legacy_orderbook.get("no") or []
 
-    if not yes_levels or not no_levels:
+    yes_prices = [
+        price_to_probability(level_price(level))
+        for level in yes_levels
+        if level_price(level) is not None
+    ]
+    no_prices = [
+        price_to_probability(level_price(level))
+        for level in no_levels
+        if level_price(level) is not None
+    ]
+
+    if not yes_prices or not no_prices:
         return None, None, None, None, None
 
-    yes_bid = max(
-        price_to_cents(level[0])
-        for level in yes_levels
-    )
+    yes_bid = max(yes_prices)
+    no_bid = max(no_prices)
 
-    no_bid = max(
-        price_to_cents(level[0])
-        for level in no_levels
-    )
-
-    yes_ask = Decimal("100") - no_bid
-    no_ask = Decimal("100") - yes_bid
+    yes_ask = Decimal("1.00") - no_bid
+    no_ask = Decimal("1.00") - yes_bid
 
     spread = yes_ask - yes_bid
 
@@ -170,13 +182,8 @@ def main():
 
                 elif signal == "DOWN":
 
-                    no_probability = (
-                        Decimal("1")
-                        - model_probability
-                    )
-
                     edge = calculate_edge(
-                        no_probability,
+                        model_probability,
                         no_ask
                     )
 
@@ -256,23 +263,23 @@ def main():
             if yes_bid is not None:
 
                 print(
-                    f"YES Bid: {yes_bid:.1f}c"
+                    f"YES Bid: {yes_bid * Decimal('100'):.1f}c"
                 )
 
                 print(
-                    f"YES Ask: {yes_ask:.1f}c"
+                    f"YES Ask: {yes_ask * Decimal('100'):.1f}c"
                 )
 
                 print(
-                    f"NO Bid: {no_bid:.1f}c"
+                    f"NO Bid: {no_bid * Decimal('100'):.1f}c"
                 )
 
                 print(
-                    f"NO Ask: {no_ask:.1f}c"
+                    f"NO Ask: {no_ask * Decimal('100'):.1f}c"
                 )
 
                 print(
-                    f"Spread: {spread:.1f}c"
+                    f"Spread: {spread * Decimal('100'):.1f}c"
                 )
 
                 if edge is not None:
@@ -291,28 +298,19 @@ def main():
                     if decision == "BUY YES":
 
                         side = "YES"
-                        entry_price = (
-                            yes_ask / Decimal("100")
-                        )
+                        entry_price = yes_ask
 
                     else:
 
                         side = "NO"
-                        entry_price = (
-                            no_ask / Decimal("100")
-                        )
+                        entry_price = no_ask
 
                     trade_recorded = record_paper_trade(
                         ticker=ticker,
                         side=side,
                         prediction=signal,
                         entry_price=entry_price,
-                        model_probability=(
-                            model_probability
-                            if side == "YES"
-                            else Decimal("1")
-                            - model_probability
-                        ),
+                        model_probability=model_probability,
                         edge=edge,
                         contracts=1,
                     )

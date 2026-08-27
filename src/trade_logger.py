@@ -1,33 +1,13 @@
-import csv
-import os
-from datetime import datetime, timezone
+from paper_execution import record_paper_trade
 
 
 TRADE_FILE = "data/paper_trades.csv"
 
 
 def initialize_trade_file():
-    os.makedirs("data", exist_ok=True)
+    from paper_execution import initialize_trade_file as _initialize_trade_file
 
-    if os.path.exists(TRADE_FILE):
-        return
-
-    with open(TRADE_FILE, "w", newline="") as file:
-        writer = csv.writer(file)
-
-        writer.writerow([
-            "timestamp",
-            "ticker",
-            "signal",
-            "model_probability",
-            "yes_ask",
-            "edge",
-            "contracts",
-            "entry_price",
-            "result",
-            "correct",
-            "pnl",
-        ])
+    _initialize_trade_file()
 
 
 def log_paper_trade(
@@ -38,21 +18,13 @@ def log_paper_trade(
     edge,
     contracts,
 ):
-    initialize_trade_file()
-
-    with open(TRADE_FILE, "a", newline="") as file:
-        writer = csv.writer(file)
-
-        writer.writerow([
-            datetime.now(timezone.utc).isoformat(),
-            ticker,
-            signal,
-            model_probability,
-            yes_ask,
-            edge,
-            contracts,
-            yes_ask,
-            "",
-            "",
-            "",
-        ])
+    side = "YES" if signal == "UP" else "NO"
+    return record_paper_trade(
+        ticker=ticker,
+        side=side,
+        prediction=signal,
+        entry_price=yes_ask,
+        model_probability=model_probability,
+        edge=edge,
+        contracts=contracts,
+    )

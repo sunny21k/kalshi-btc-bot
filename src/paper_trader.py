@@ -1,32 +1,11 @@
-import csv
-import os
-from datetime import datetime, timezone
+from paper_execution import initialize_trade_file, record_paper_trade as _record_paper_trade
 
 
 TRADES_FILE = "data/paper_trades.csv"
 
 
 def initialize_trades_file():
-    os.makedirs("data", exist_ok=True)
-
-    if os.path.exists(TRADES_FILE):
-        return
-
-    with open(TRADES_FILE, "w", newline="") as file:
-        writer = csv.writer(file)
-
-        writer.writerow([
-            "timestamp",
-            "ticker",
-            "prediction",
-            "entry_price",
-            "model_probability",
-            "edge",
-            "contracts",
-            "cost",
-            "actual_result",
-            "profit_loss",
-        ])
+    initialize_trade_file()
 
 
 def record_paper_trade(
@@ -43,29 +22,18 @@ def record_paper_trade(
 
     No real money is used.
     """
-
-    initialize_trades_file()
-
-    cost = entry_price * contracts
-
-    with open(TRADES_FILE, "a", newline="") as file:
-        writer = csv.writer(file)
-
-        writer.writerow([
-            datetime.now(timezone.utc).isoformat(),
-            ticker,
-            prediction,
-            entry_price,
-            model_probability,
-            edge,
-            contracts,
-            cost,
-            "",
-            "",
-        ])
-
-    print(
-        f"PAPER TRADE: BUY {contracts} {prediction} "
-        f"@ ${entry_price:.4f} "
-        f"(cost=${cost:.4f})"
+    side = "YES" if prediction == "UP" else "NO"
+    recorded = _record_paper_trade(
+        ticker=ticker,
+        side=side,
+        prediction=prediction,
+        entry_price=entry_price,
+        model_probability=model_probability,
+        edge=edge,
+        contracts=contracts,
     )
+
+    if recorded:
+        print(f"PAPER TRADE: BUY {contracts} {side} @ ${entry_price:.4f}")
+
+    return recorded

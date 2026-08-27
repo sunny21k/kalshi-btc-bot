@@ -25,9 +25,16 @@ def get_signal(price_change):
 
 
 def estimate_probability(signal, price_change):
+    """
+    Return the model probability for the predicted side.
+
+    UP means probability of YES.
+    DOWN means probability of NO.
+    NEUTRAL means no directional edge.
+    """
     price_change = Decimal(str(price_change))
 
-    if signal == "UP":
+    if signal in ["UP", "DOWN"]:
         probability = (
             Decimal("0.50")
             + abs(price_change) * Decimal("2")
@@ -35,23 +42,14 @@ def estimate_probability(signal, price_change):
 
         return min(probability, Decimal("0.95"))
 
-    if signal == "DOWN":
-        probability = (
-            Decimal("0.50")
-            - abs(price_change) * Decimal("2")
-        )
-
-        return max(probability, Decimal("0.05"))
-
     return Decimal("0.50")
 
 
 def calculate_edge(model_probability, market_price):
+    model_probability = Decimal(str(model_probability))
     market_price = Decimal(str(market_price))
 
-    market_probability = market_price / Decimal("100")
-
-    return model_probability - market_probability
+    return model_probability - market_price
 
 
 def make_decision(
@@ -90,10 +88,8 @@ def make_decision(
         if no_ask is None:
             return "WAIT"
 
-        no_probability = Decimal("1") - model_probability
-
         edge = calculate_edge(
-            no_probability,
+            model_probability,
             no_ask,
         )
 
