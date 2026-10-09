@@ -3,6 +3,7 @@ import os
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 
@@ -142,6 +143,27 @@ class LiveExecutionTests(unittest.TestCase):
         with open(live_execution.LIVE_TRADE_FILE, "r", newline="") as file:
             return list(csv.DictReader(file))
 
+    def live_row(self, **overrides):
+        row = {field: "" for field in live_execution.FIELDNAMES}
+        row.update({
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "ticker": "KXBTC15M-LIVE",
+            "side": "YES",
+            "prediction": "UP",
+            "entry_price": "0.8000",
+            "contracts": "1",
+            "max_cost": "0.8000",
+            "order_side": "bid",
+            "order_price": "0.8000",
+            "client_order_id": "client",
+            "status": "executed",
+            "order_id": "order",
+            "response": "{}",
+            "error": "",
+        })
+        row.update(overrides)
+        return row
+
     def test_live_yes_trade_records_order_without_duplicate(self):
         calls = []
 
@@ -259,6 +281,66 @@ class LiveExecutionTests(unittest.TestCase):
         self.assertEqual("-0.8200", rows["LIVE-NO"]["profit_loss"])
         self.assertEqual("False", rows["LIVE-NO"]["correct"])
 
+    def test_live_risk_blocks_after_thirty_trades_today(self):
+        live_execution.write_live_trade_rows([
+            self.live_row(ticker=f"KXBTC15M-LIVE-{index}")
+            for index in range(30)
+        ])
+
+        with self.assertRaisesRegex(RuntimeError, "Daily live trade limit reached"):
+            live_execution.place_live_trade(
+                ticker="KXBTC15M-LIVE-NEW",
+                side="YES",
+                prediction="UP",
+                entry_price=Decimal("0.80"),
+                contracts=1,
+                create_order_fn=lambda ticker, **kwargs: {},
+            )
+
+    def test_live_risk_blocks_after_daily_loss_limit(self):
+        live_execution.write_live_trade_rows([
+            self.live_row(
+                ticker="KXBTC15M-LOSS",
+                actual_result="NO",
+                profit_loss="-10.0000",
+                correct="False",
+            )
+        ])
+
+        with self.assertRaisesRegex(RuntimeError, "Daily live loss limit reached"):
+            live_execution.place_live_trade(
+                ticker="KXBTC15M-LIVE-NEW",
+                side="YES",
+                prediction="UP",
+                entry_price=Decimal("0.80"),
+                contracts=1,
+                create_order_fn=lambda ticker, **kwargs: {},
+            )
+
+    def test_live_risk_ignores_previous_day_rows(self):
+        yesterday = datetime.now(timezone.utc) - timedelta(days=1)
+        calls = []
+        live_execution.write_live_trade_rows([
+            self.live_row(
+                ticker=f"KXBTC15M-YESTERDAY-{index}",
+                timestamp=yesterday.isoformat(),
+                profit_loss="-10.0000",
+            )
+            for index in range(30)
+        ])
+
+        recorded = live_execution.place_live_trade(
+            ticker="KXBTC15M-TODAY",
+            side="YES",
+            prediction="UP",
+            entry_price=Decimal("0.80"),
+            contracts=1,
+            create_order_fn=lambda ticker, **kwargs: calls.append(kwargs) or {},
+        )
+
+        self.assertTrue(recorded)
+        self.assertEqual(1, len(calls))
+
 
 class StrategyTests(unittest.TestCase):
     def test_orderbook_quotes_use_dollar_probability_units(self):
@@ -276,6 +358,28 @@ class StrategyTests(unittest.TestCase):
                 Decimal("0.54"),
                 Decimal("0.58"),
                 Decimal("0.04"),
+            ),
+            quote,
+        )
+
+    def test_orderbook_quote_falls_back_to_market_prices(self):
+        quote = get_yes_quote(
+            {"orderbook_fp": {"yes_dollars": [], "no_dollars": []}},
+            {
+                "yes_bid_dollars": "0.7800",
+                "yes_ask_dollars": "0.8000",
+                "no_bid_dollars": "0.2000",
+                "no_ask_dollars": "0.2200",
+            },
+        )
+
+        self.assertEqual(
+            (
+                Decimal("0.7800"),
+                Decimal("0.8000"),
+                Decimal("0.2000"),
+                Decimal("0.2200"),
+                Decimal("0.0200"),
             ),
             quote,
         )
@@ -301,6 +405,13 @@ class StrategyTests(unittest.TestCase):
             seconds_remaining=Decimal("180"),
             yes_ask=Decimal("0.80"),
             no_ask=Decimal("0.20"),
+            spread=Decimal("0.02"),
+            recent_prices=[
+                Decimal("82325"),
+                Decimal("82330"),
+                Decimal("82335"),
+            ],
+            confirmation_count=3,
         )
 
         self.assertEqual("BUY YES", result["decision"])
@@ -315,12 +426,77 @@ class StrategyTests(unittest.TestCase):
             seconds_remaining=Decimal("180"),
             yes_ask=Decimal("0.20"),
             no_ask=Decimal("0.82"),
+            spread=Decimal("0.02"),
+            recent_prices=[
+                Decimal("82320"),
+                Decimal("82310"),
+                Decimal("82300"),
+            ],
+            confirmation_count=3,
         )
 
         self.assertEqual("BUY NO", result["decision"])
         self.assertEqual("NO", result["side"])
         self.assertEqual("DOWN", result["prediction"])
         self.assertEqual(Decimal("0.82"), result["entry_price"])
+
+    def test_late_momentum_buys_with_strong_six_minute_rule(self):
+        result = make_late_momentum_decision(
+            btc_price=Decimal("82380"),
+            target_price=Decimal("82323.36"),
+            seconds_remaining=Decimal("350"),
+            yes_ask=Decimal("0.84"),
+            no_ask=Decimal("0.16"),
+            spread=Decimal("0.02"),
+            recent_prices=[
+                Decimal("82340"),
+                Decimal("82360"),
+                Decimal("82380"),
+            ],
+            confirmation_count=3,
+        )
+
+        self.assertEqual("BUY YES", result["decision"])
+        self.assertEqual("strong 6-minute $50 rule passed", result["reason"])
+
+    def test_late_momentum_buys_yes_with_early_nine_minute_rule(self):
+        result = make_late_momentum_decision(
+            btc_price=Decimal("82400"),
+            target_price=Decimal("82323.36"),
+            seconds_remaining=Decimal("530"),
+            yes_ask=Decimal("0.86"),
+            no_ask=Decimal("0.14"),
+            spread=Decimal("0.02"),
+            recent_prices=[
+                Decimal("82350"),
+                Decimal("82375"),
+                Decimal("82400"),
+            ],
+            confirmation_count=3,
+        )
+
+        self.assertEqual("BUY YES", result["decision"])
+        self.assertEqual("early_up_9m_70", result["strategy_name"])
+        self.assertEqual("early 9-minute $70 up rule passed", result["reason"])
+
+    def test_late_rule_uses_lower_max_price_than_strong_rule(self):
+        result = make_late_momentum_decision(
+            btc_price=Decimal("82340"),
+            target_price=Decimal("82323.36"),
+            seconds_remaining=Decimal("180"),
+            yes_ask=Decimal("0.88"),
+            no_ask=Decimal("0.12"),
+            spread=Decimal("0.02"),
+            recent_prices=[
+                Decimal("82325"),
+                Decimal("82330"),
+                Decimal("82340"),
+            ],
+            confirmation_count=3,
+        )
+
+        self.assertEqual("WAIT", result["decision"])
+        self.assertEqual("YES ask outside allowed price band", result["reason"])
 
     def test_late_momentum_waits_outside_time_price_or_difference_filters(self):
         self.assertEqual(
@@ -329,6 +505,106 @@ class StrategyTests(unittest.TestCase):
                 btc_price=Decimal("82335"),
                 target_price=Decimal("82323.36"),
                 seconds_remaining=Decimal("241"),
+                yes_ask=Decimal("0.80"),
+                no_ask=Decimal("0.20"),
+            )["decision"],
+        )
+
+    def test_late_momentum_waits_on_final_seconds_wide_spread_or_bad_momentum(self):
+        self.assertEqual(
+            "inside final 30 seconds",
+            make_late_momentum_decision(
+                btc_price=Decimal("82380"),
+                target_price=Decimal("82323.36"),
+                seconds_remaining=Decimal("30"),
+                yes_ask=Decimal("0.84"),
+                no_ask=Decimal("0.16"),
+                spread=Decimal("0.02"),
+                recent_prices=[
+                    Decimal("82340"),
+                    Decimal("82360"),
+                    Decimal("82380"),
+                ],
+                confirmation_count=3,
+            )["reason"],
+        )
+        self.assertEqual(
+            "spread wider than 3 cents",
+            make_late_momentum_decision(
+                btc_price=Decimal("82380"),
+                target_price=Decimal("82323.36"),
+                seconds_remaining=Decimal("180"),
+                yes_ask=Decimal("0.84"),
+                no_ask=Decimal("0.16"),
+                spread=Decimal("0.04"),
+                recent_prices=[
+                    Decimal("82340"),
+                    Decimal("82360"),
+                    Decimal("82380"),
+                ],
+                confirmation_count=3,
+            )["reason"],
+        )
+        self.assertEqual(
+            "recent BTC momentum does not confirm UP",
+            make_late_momentum_decision(
+                btc_price=Decimal("82380"),
+                target_price=Decimal("82323.36"),
+                seconds_remaining=Decimal("180"),
+                yes_ask=Decimal("0.84"),
+                no_ask=Decimal("0.16"),
+                spread=Decimal("0.02"),
+                recent_prices=[
+                    Decimal("82390"),
+                    Decimal("82385"),
+                    Decimal("82380"),
+                ],
+                confirmation_count=3,
+            )["reason"],
+        )
+
+    def test_late_momentum_waits_without_confirmation_or_after_chase(self):
+        self.assertEqual(
+            "price threshold not confirmed for 3 polls",
+            make_late_momentum_decision(
+                btc_price=Decimal("82380"),
+                target_price=Decimal("82323.36"),
+                seconds_remaining=Decimal("180"),
+                yes_ask=Decimal("0.84"),
+                no_ask=Decimal("0.16"),
+                spread=Decimal("0.02"),
+                recent_prices=[
+                    Decimal("82340"),
+                    Decimal("82360"),
+                    Decimal("82380"),
+                ],
+                confirmation_count=2,
+            )["reason"],
+        )
+        self.assertEqual(
+            "ask moved up too fast",
+            make_late_momentum_decision(
+                btc_price=Decimal("82380"),
+                target_price=Decimal("82323.36"),
+                seconds_remaining=Decimal("180"),
+                yes_ask=Decimal("0.84"),
+                no_ask=Decimal("0.16"),
+                spread=Decimal("0.02"),
+                recent_prices=[
+                    Decimal("82340"),
+                    Decimal("82360"),
+                    Decimal("82380"),
+                ],
+                previous_entry_price=Decimal("0.78"),
+                confirmation_count=3,
+            )["reason"],
+        )
+        self.assertEqual(
+            "WAIT",
+            make_late_momentum_decision(
+                btc_price=Decimal("82360"),
+                target_price=Decimal("82323.36"),
+                seconds_remaining=Decimal("300"),
                 yes_ask=Decimal("0.80"),
                 no_ask=Decimal("0.20"),
             )["decision"],

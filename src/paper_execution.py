@@ -13,6 +13,8 @@ FIELDNAMES = [
     "entry_price",
     "model_probability",
     "edge",
+    "strategy_name",
+    "seconds_remaining",
     "contracts",
     "cost",
     "actual_result",
@@ -60,6 +62,8 @@ def normalize_trade_row(row):
         "entry_price": entry_price,
         "model_probability": row.get("model_probability", ""),
         "edge": row.get("edge", ""),
+        "strategy_name": row.get("strategy_name", ""),
+        "seconds_remaining": row.get("seconds_remaining", ""),
         "contracts": contracts,
         "cost": calculate_cost(entry_price, contracts),
         "actual_result": row.get("actual_result") or row.get("result") or "",
@@ -126,6 +130,8 @@ def record_paper_trade(
     entry_price,
     model_probability,
     edge,
+    strategy_name="",
+    seconds_remaining="",
     contracts=1,
 ):
     initialize_trade_file()
@@ -149,6 +155,12 @@ def record_paper_trade(
             "entry_price": f"{entry_price:.4f}",
             "model_probability": f"{model_probability:.4f}",
             "edge": f"{edge:.4f}",
+            "strategy_name": strategy_name,
+            "seconds_remaining": (
+                f"{Decimal(str(seconds_remaining)):.4f}"
+                if seconds_remaining not in (None, "")
+                else ""
+            ),
             "contracts": contracts,
             "cost": f"{cost:.4f}",
             "actual_result": "",

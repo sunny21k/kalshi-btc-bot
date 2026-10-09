@@ -32,6 +32,64 @@ def format_percent(value):
     return f"{value:.2f}%"
 
 
+def entry_price_bucket(entry_price):
+    price = Decimal(str(entry_price))
+    if price < Decimal("0.80"):
+        return "75-80%"
+    if price < Decimal("0.85"):
+        return "80-85%"
+    if price < Decimal("0.90"):
+        return "85-90%"
+    return "90-92%"
+
+
+def time_bucket(seconds_remaining):
+    if seconds_remaining in (None, ""):
+        return "unknown"
+
+    minutes = Decimal(str(seconds_remaining)) / Decimal("60")
+    if minutes > Decimal("5"):
+        return "6-5 min"
+    if minutes > Decimal("4"):
+        return "5-4 min"
+    if minutes > Decimal("3"):
+        return "4-3 min"
+    if minutes > Decimal("2"):
+        return "3-2 min"
+    if minutes > Decimal("1"):
+        return "2-1 min"
+    if minutes > Decimal("0.5"):
+        return "1-0.5 min"
+    return "0.5-0 min"
+
+
+def add_bucket_stats(stats, key, won, profit_loss):
+    item = stats.setdefault(
+        key,
+        {"total": 0, "settled": 0, "wins": 0, "profit_loss": Decimal("0")},
+    )
+    item["total"] += 1
+    if won is not None:
+        item["settled"] += 1
+        item["wins"] += int(won)
+        item["profit_loss"] += profit_loss
+
+
+def print_bucket_stats(title, stats):
+    if not stats:
+        return
+
+    print()
+    print(title)
+    for key in sorted(stats):
+        item = stats[key]
+        print(
+            f"{key}: {item['total']} trades | "
+            f"Win Rate: {format_percent(percent(item['wins'], item['settled']))} | "
+            f"P/L: ${item['profit_loss']:.4f}"
+        )
+
+
 def print_trade_performance(
     *,
     file_path,
@@ -63,6 +121,9 @@ def print_trade_performance(
     no_wins = 0
     no_profit_loss = Decimal("0")
     no_settled = 0
+    strategy_stats = {}
+    entry_stats = {}
+    time_stats = {}
 
     with open(file_path, "r", newline="") as file:
         reader = csv.DictReader(file)
@@ -74,7 +135,8 @@ def print_trade_performance(
             total_trades += 1
             side = row.get("side", "")
             actual_result = row.get("actual_result", "")
-            entry_price_total += decimal_or_zero(row.get("entry_price"))
+            entry_price = decimal_or_zero(row.get("entry_price"))
+            entry_price_total += entry_price
             if include_edge:
                 edge_total += decimal_or_zero(row.get("edge"))
 
@@ -85,10 +147,31 @@ def print_trade_performance(
 
             if actual_result not in ["YES", "NO"]:
                 unsettled_trades += 1
+                add_bucket_stats(
+                    strategy_stats,
+                    row.get("strategy_name") or "unknown",
+                    None,
+                    Decimal("0"),
+                )
+                add_bucket_stats(
+                    entry_stats,
+                    entry_price_bucket(entry_price),
+                    None,
+                    Decimal("0"),
+                )
+                add_bucket_stats(
+                    time_stats,
+                    time_bucket(row.get("seconds_remaining")),
+                    None,
+                    Decimal("0"),
+                )
                 continue
 
             settled_trades += 1
-            cost = decimal_or_zero(row.get(cost_field))
+            if row.get("filled_count") not in (None, ""):
+                cost = entry_price * decimal_or_zero(row.get("filled_count"))
+            else:
+                cost = decimal_or_zero(row.get(cost_field))
             profit_loss = decimal_or_zero(row.get("profit_loss"))
             won = row.get("correct")
             if won in ("", None):
@@ -99,6 +182,24 @@ def print_trade_performance(
             wins += int(won)
             total_invested += cost
             total_profit_loss += profit_loss
+            add_bucket_stats(
+                strategy_stats,
+                row.get("strategy_name") or "unknown",
+                won,
+                profit_loss,
+            )
+            add_bucket_stats(
+                entry_stats,
+                entry_price_bucket(entry_price),
+                won,
+                profit_loss,
+            )
+            add_bucket_stats(
+                time_stats,
+                time_bucket(row.get("seconds_remaining")),
+                won,
+                profit_loss,
+            )
 
             if side == "YES":
                 yes_settled += 1
@@ -149,6 +250,9 @@ def print_trade_performance(
     print(f"NO Trades: {no_total}")
     print(f"NO Win Rate: {format_percent(percent(no_wins, no_settled))}")
     print(f"NO P/L: ${no_profit_loss:.4f}")
+    print_bucket_stats("By Strategy", strategy_stats)
+    print_bucket_stats("By Entry Price", entry_stats)
+    print_bucket_stats("By Time Remaining", time_stats)
 
 
 def print_paper_trade_performance():

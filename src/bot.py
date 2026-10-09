@@ -1,5 +1,6 @@
 import os
 import time
+from collections import deque
 from datetime import datetime, timezone
 from decimal import Decimal
 
@@ -12,6 +13,7 @@ from strategy import (
 from data_logger import log_market_data
 from live_execution import place_live_trade
 from paper_execution import record_paper_trade
+from shadow_logger import log_shadow_signal
 
 
 SERIES = "KXBTC15M"
@@ -85,7 +87,14 @@ def level_price(level):
     return level[0]
 
 
-def get_yes_quote(orderbook):
+def market_price(market, key):
+    value = market.get(key)
+    if value in (None, ""):
+        return None
+    return price_to_probability(value)
+
+
+def get_yes_quote(orderbook, market=None):
     orderbook_fp = orderbook.get("orderbook_fp", {})
     legacy_orderbook = orderbook.get("orderbook") or orderbook
 
@@ -104,7 +113,17 @@ def get_yes_quote(orderbook):
     ]
 
     if not yes_prices or not no_prices:
-        return None, None, None, None, None
+        if market is None:
+            return None, None, None, None, None
+
+        yes_bid = market_price(market, "yes_bid_dollars")
+        yes_ask = market_price(market, "yes_ask_dollars")
+        no_bid = market_price(market, "no_bid_dollars")
+        no_ask = market_price(market, "no_ask_dollars")
+        if None in (yes_bid, yes_ask, no_bid, no_ask):
+            return None, None, None, None, None
+
+        return yes_bid, yes_ask, no_bid, no_ask, yes_ask - yes_bid
 
     yes_bid = max(yes_prices)
     no_bid = max(no_prices)
@@ -123,6 +142,9 @@ def main():
     print("Mode: LIVE MONEY" if LIVE_TRADING_ENABLED else "Mode: PAPER")
 
     previous_btc_price = None
+    recent_btc_prices = deque(maxlen=4)
+    confirmation_counts = {}
+    previous_entry_prices = {}
 
     while True:
 
@@ -131,6 +153,7 @@ def main():
             btc_price = Decimal(
                 str(get_btc_price())
             )
+            recent_btc_prices.append(btc_price)
 
             market = get_current_market()
 
@@ -149,7 +172,7 @@ def main():
                 no_bid,
                 no_ask,
                 spread,
-            ) = get_yes_quote(orderbook)
+            ) = get_yes_quote(orderbook, market)
 
             if previous_btc_price is None:
 
@@ -167,12 +190,56 @@ def main():
             )
 
             target_price = market.get("floor_strike")
+            price_difference_for_confirmation = None
+            confirmation_key = None
+
+            if target_price not in (None, ""):
+                price_difference_for_confirmation = (
+                    btc_price - Decimal(str(target_price))
+                )
+                if abs(price_difference_for_confirmation) >= Decimal("10"):
+                    confirmation_side = (
+                        "YES"
+                        if price_difference_for_confirmation > 0
+                        else "NO"
+                    )
+                    confirmation_key = (ticker, confirmation_side)
+                    confirmation_counts[confirmation_key] = (
+                        confirmation_counts.get(confirmation_key, 0) + 1
+                    )
+                else:
+                    confirmation_counts[(ticker, "YES")] = 0
+                    confirmation_counts[(ticker, "NO")] = 0
+
             trade_signal = make_late_momentum_decision(
                 btc_price=btc_price,
                 target_price=target_price,
                 seconds_remaining=seconds_remaining,
                 yes_ask=yes_ask,
                 no_ask=no_ask,
+                spread=spread,
+                recent_prices=recent_btc_prices,
+                previous_entry_price=(
+                    previous_entry_prices.get(confirmation_key)
+                    if confirmation_key is not None
+                    else None
+                ),
+                confirmation_count=(
+                    confirmation_counts.get(confirmation_key, 0)
+                    if confirmation_key is not None
+                    else 0
+                ),
+            )
+            if decision_key := trade_signal.get("side"):
+                previous_entry_prices[(ticker, decision_key)] = (
+                    trade_signal.get("entry_price")
+                )
+
+            log_shadow_signal(
+                ticker=ticker,
+                live_enabled=LIVE_TRADING_ENABLED,
+                trade_signal=trade_signal,
+                seconds_remaining=seconds_remaining,
             )
             signal = trade_signal["prediction"]
             decision = trade_signal["decision"]
@@ -301,6 +368,8 @@ def main():
                             side=side,
                             prediction=signal,
                             entry_price=entry_price,
+                            strategy_name=trade_signal.get("strategy_name", ""),
+                            seconds_remaining=seconds_remaining,
                             contracts=1,
                             exchange_index=market.get("exchange_index"),
                         )
@@ -314,6 +383,8 @@ def main():
                             entry_price=entry_price,
                             model_probability=model_probability,
                             edge=edge,
+                            strategy_name=trade_signal.get("strategy_name", ""),
+                            seconds_remaining=seconds_remaining,
                             contracts=1,
                         )
 
