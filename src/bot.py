@@ -1,3 +1,4 @@
+import os
 import time
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -6,17 +7,16 @@ from btc_feed import get_btc_price
 from kalshi_api import get_markets_for_series, get_orderbook
 from strategy import (
     calculate_btc_change,
-    get_signal,
-    estimate_probability,
-    calculate_edge,
-    make_decision,
+    make_late_momentum_decision,
 )
 from data_logger import log_market_data
+from live_execution import place_live_trade
 from paper_execution import record_paper_trade
 
 
 SERIES = "KXBTC15M"
 POLL_SECONDS = 5
+LIVE_TRADING_ENABLED = os.getenv("KALSHI_LIVE_TRADING", "").lower() == "true"
 
 
 def parse_close_time(market):
@@ -120,6 +120,7 @@ def get_yes_quote(orderbook):
 def main():
 
     print("Starting BTC + Kalshi bot...")
+    print("Mode: LIVE MONEY" if LIVE_TRADING_ENABLED else "Mode: PAPER")
 
     previous_btc_price = None
 
@@ -161,42 +162,24 @@ def main():
                     previous_btc_price
                 )
 
-            signal = get_signal(price_change)
-
-            model_probability = estimate_probability(
-                signal,
-                price_change
-            )
-
-            edge = None
-            decision = "WAIT"
-
-            if yes_ask is not None:
-
-                if signal == "UP":
-
-                    edge = calculate_edge(
-                        model_probability,
-                        yes_ask
-                    )
-
-                elif signal == "DOWN":
-
-                    edge = calculate_edge(
-                        model_probability,
-                        no_ask
-                    )
-
-                decision = make_decision(
-                    signal,
-                    model_probability,
-                    yes_ask,
-                    no_ask,
-                )
-
             seconds_remaining = get_seconds_remaining(
                 market
             )
+
+            target_price = market.get("floor_strike")
+            trade_signal = make_late_momentum_decision(
+                btc_price=btc_price,
+                target_price=target_price,
+                seconds_remaining=seconds_remaining,
+                yes_ask=yes_ask,
+                no_ask=no_ask,
+            )
+            signal = trade_signal["prediction"]
+            decision = trade_signal["decision"]
+            entry_price = trade_signal["entry_price"]
+            price_difference = trade_signal["price_difference"]
+            model_probability = entry_price or Decimal("0.50")
+            edge = Decimal("0")
 
             log_market_data(
                 ticker=ticker,
@@ -223,6 +206,18 @@ def main():
             print(
                 f"BTC Change: {price_change:.4f}%"
             )
+
+            if target_price is not None:
+
+                print(
+                    f"Target Price: ${Decimal(str(target_price)):,.2f}"
+                )
+
+            if price_difference is not None:
+
+                print(
+                    f"BTC Difference: ${price_difference:,.2f}"
+                )
 
             print(
                 f"Signal: {signal}"
@@ -292,33 +287,44 @@ def main():
                     f"Decision: {decision}"
                 )
 
-                # PAPER TRADING ONLY
+                print(
+                    f"Reason: {trade_signal['reason']}"
+                )
+
                 if decision in ("BUY YES", "BUY NO"):
+                    side = trade_signal["side"]
 
-                    if decision == "BUY YES":
+                    if LIVE_TRADING_ENABLED:
 
-                        side = "YES"
-                        entry_price = yes_ask
+                        trade_recorded = place_live_trade(
+                            ticker=ticker,
+                            side=side,
+                            prediction=signal,
+                            entry_price=entry_price,
+                            contracts=1,
+                            exchange_index=market.get("exchange_index"),
+                        )
 
                     else:
 
-                        side = "NO"
-                        entry_price = no_ask
-
-                    trade_recorded = record_paper_trade(
-                        ticker=ticker,
-                        side=side,
-                        prediction=signal,
-                        entry_price=entry_price,
-                        model_probability=model_probability,
-                        edge=edge,
-                        contracts=1,
-                    )
+                        trade_recorded = record_paper_trade(
+                            ticker=ticker,
+                            side=side,
+                            prediction=signal,
+                            entry_price=entry_price,
+                            model_probability=model_probability,
+                            edge=edge,
+                            contracts=1,
+                        )
 
                     if trade_recorded:
 
                         print()
-                        print("PAPER TRADE EXECUTED")
+                        print(
+                            "LIVE TRADE SUBMITTED"
+                            if LIVE_TRADING_ENABLED
+                            else "PAPER TRADE EXECUTED"
+                        )
 
                         print(
                             f"Side: {side}"

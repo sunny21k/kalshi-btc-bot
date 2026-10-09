@@ -3,6 +3,7 @@ import os
 from datetime import datetime, timezone
 
 from outcome_tracker import get_market_result, prediction_was_correct
+from live_execution import update_live_trade_results
 from paper_execution import update_paper_trade_results
 
 
@@ -117,8 +118,10 @@ if __name__ == "__main__":
     print()
 
     paper_count = update_paper_trade_results(get_market_result)
+    live_count = update_live_trade_results(get_market_result)
     count = track_completed_markets()
 
     print()
     print(f"Paper trades settled: {paper_count}")
+    print(f"Live trades settled: {live_count}")
     print(f"New results recorded: {count}")

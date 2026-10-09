@@ -2,6 +2,7 @@ import csv
 import os
 from decimal import Decimal
 
+from live_execution import LIVE_TRADE_FILE
 from outcome_tracker import prediction_was_correct
 
 
@@ -31,9 +32,17 @@ def format_percent(value):
     return f"{value:.2f}%"
 
 
-def print_paper_trade_performance():
-    if not os.path.exists(PAPER_TRADES_FILE):
-        print("No paper trades found.")
+def print_trade_performance(
+    *,
+    file_path,
+    title,
+    total_label,
+    no_trades_message,
+    cost_field,
+    include_edge,
+):
+    if not os.path.exists(file_path):
+        print(no_trades_message)
         return
 
     total_trades = 0
@@ -55,15 +64,19 @@ def print_paper_trade_performance():
     no_profit_loss = Decimal("0")
     no_settled = 0
 
-    with open(PAPER_TRADES_FILE, "r", newline="") as file:
+    with open(file_path, "r", newline="") as file:
         reader = csv.DictReader(file)
 
         for row in reader:
+            if row.get("error"):
+                continue
+
             total_trades += 1
             side = row.get("side", "")
             actual_result = row.get("actual_result", "")
             entry_price_total += decimal_or_zero(row.get("entry_price"))
-            edge_total += decimal_or_zero(row.get("edge"))
+            if include_edge:
+                edge_total += decimal_or_zero(row.get("edge"))
 
             if side == "YES":
                 yes_total += 1
@@ -75,7 +88,7 @@ def print_paper_trade_performance():
                 continue
 
             settled_trades += 1
-            cost = decimal_or_zero(row.get("cost"))
+            cost = decimal_or_zero(row.get(cost_field))
             profit_loss = decimal_or_zero(row.get("profit_loss"))
             won = row.get("correct")
             if won in ("", None):
@@ -98,11 +111,11 @@ def print_paper_trade_performance():
 
     print()
     print("=" * 60)
-    print("PAPER TRADING PERFORMANCE")
+    print(title)
     print("=" * 60)
 
     if not total_trades:
-        print("No paper trades found.")
+        print(no_trades_message)
         return
 
     losses = settled_trades - wins
@@ -115,7 +128,7 @@ def print_paper_trade_performance():
     average_entry_price = entry_price_total / total_trades
     average_edge = edge_total / total_trades
 
-    print(f"Total Paper Trades: {total_trades}")
+    print(f"{total_label}: {total_trades}")
     print(f"Settled Trades: {settled_trades}")
     print(f"Unsettled Trades: {unsettled_trades}")
     print(f"Wins: {wins}")
@@ -125,7 +138,8 @@ def print_paper_trade_performance():
     print(f"Total Profit/Loss: ${total_profit_loss:.4f}")
     print(f"ROI: {roi:.2f}%")
     print(f"Average Entry Price: ${average_entry_price:.4f}")
-    print(f"Average Edge: {average_edge * Decimal('100'):.2f}%")
+    if include_edge:
+        print(f"Average Edge: {average_edge * Decimal('100'):.2f}%")
     print()
 
     print(f"YES Trades: {yes_total}")
@@ -135,6 +149,28 @@ def print_paper_trade_performance():
     print(f"NO Trades: {no_total}")
     print(f"NO Win Rate: {format_percent(percent(no_wins, no_settled))}")
     print(f"NO P/L: ${no_profit_loss:.4f}")
+
+
+def print_paper_trade_performance():
+    print_trade_performance(
+        file_path=PAPER_TRADES_FILE,
+        title="PAPER TRADING PERFORMANCE",
+        total_label="Total Paper Trades",
+        no_trades_message="No paper trades found.",
+        cost_field="cost",
+        include_edge=True,
+    )
+
+
+def print_live_trade_performance():
+    print_trade_performance(
+        file_path=LIVE_TRADE_FILE,
+        title="LIVE TRADING PERFORMANCE",
+        total_label="Total Live Trades",
+        no_trades_message="No live trades found.",
+        cost_field="max_cost",
+        include_edge=False,
+    )
 
 
 def load_predictions():
@@ -238,6 +274,7 @@ def print_prediction_performance():
 
 def main():
     print_paper_trade_performance()
+    print_live_trade_performance()
     print_prediction_performance()
 
 
