@@ -2,6 +2,9 @@ import csv
 import json
 import mimetypes
 import os
+import signal
+import subprocess
+import sys
 from collections import Counter, defaultdict
 from decimal import Decimal
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -15,6 +18,43 @@ DASHBOARD_DIST = ROOT / "dashboard" / "dist"
 PAPER_FILE = DATA_DIR / "paper_trades.csv"
 LIVE_FILE = DATA_DIR / "live_trades.csv"
 SHADOW_FILE = DATA_DIR / "shadow_signals.csv"
+SCALP_FILE = DATA_DIR / "scalp_paper_trades.csv"
+LOG_DIR = DATA_DIR / "bot_logs"
+BOT_PROCESSES = {}
+
+
+BOTS = {
+    "btc15_paper": {
+        "name": "15m Paper Bot",
+        "script": "bot.py",
+        "mode": "paper",
+        "description": (
+            "Trades the 15-minute BTC Kalshi markets using the target-distance "
+            "rules, momentum checks, spread filter, and paper logging."
+        ),
+        "env": {"KALSHI_LIVE_TRADING": "false"},
+    },
+    "btc15_live": {
+        "name": "15m Live Bot",
+        "script": "bot.py",
+        "mode": "live",
+        "description": (
+            "Same 15-minute strategy, but submits real Kalshi orders with "
+            "live risk limits, daily cap, and live_trades.csv logging."
+        ),
+        "env": {"KALSHI_LIVE_TRADING": "true"},
+    },
+    "scalp_paper": {
+        "name": "Scalp Paper Bot",
+        "script": "scalp_bot.py",
+        "mode": "paper",
+        "description": (
+            "Fast paper-only bot using 5-second candles, 15-second confirmation, "
+            "candle-shrink exits, trailing profit floor, and stop loss."
+        ),
+        "env": {},
+    },
+}
 
 
 def decimal_or_zero(value):
@@ -114,18 +154,122 @@ def shadow_stats(rows):
     }
 
 
+def scalp_stats(rows):
+    valid_rows = [row for row in rows if not row.get("error")]
+    opens = [row for row in valid_rows if row.get("event") == "OPEN"]
+    closes = [row for row in valid_rows if row.get("event") == "CLOSE"]
+    closed_ids = {row.get("trade_id") for row in closes}
+    open_positions = [
+        row for row in opens if row.get("trade_id") not in closed_ids
+    ]
+    wins = [row for row in closes if decimal_or_zero(row.get("profit_loss")) > 0]
+    total_invested = sum(decimal_or_zero(row.get("cost")) for row in opens)
+    total_profit_loss = sum(decimal_or_zero(row.get("profit_loss")) for row in closes)
+    peak_profit = sum(decimal_or_zero(row.get("peak_profit")) for row in closes)
+    reasons = Counter(row.get("reason") or "unknown" for row in valid_rows)
+
+    return {
+        "total": len(opens),
+        "closed": len(closes),
+        "open": len(open_positions),
+        "wins": len(wins),
+        "losses": len(closes) - len(wins),
+        "winRate": pct(len(wins), len(closes)),
+        "totalInvested": money(total_invested),
+        "profitLoss": money(total_profit_loss),
+        "peakProfit": money(peak_profit),
+        "byReason": dict(reasons.most_common(12)),
+        "recent": valid_rows[-30:][::-1],
+    }
+
+
 def build_payload():
     return {
         "paper": trade_stats(read_csv(PAPER_FILE), cost_field="cost"),
         "live": trade_stats(read_csv(LIVE_FILE), cost_field="max_cost"),
+        "scalp": scalp_stats(read_csv(SCALP_FILE)),
         "shadow": shadow_stats(read_csv(SHADOW_FILE)),
+        "bots": bot_statuses(),
     }
+
+
+def process_running(process):
+    return process is not None and process.poll() is None
+
+
+def bot_statuses():
+    statuses = []
+
+    for bot_id, config in BOTS.items():
+        process = BOT_PROCESSES.get(bot_id)
+        running = process_running(process)
+        statuses.append({
+            "id": bot_id,
+            "name": config["name"],
+            "mode": config["mode"],
+            "description": config["description"],
+            "running": running,
+            "pid": process.pid if running else None,
+            "returnCode": None if process is None or running else process.poll(),
+            "logFile": str(log_path(bot_id).relative_to(ROOT)),
+        })
+
+    return statuses
+
+
+def log_path(bot_id):
+    return LOG_DIR / f"{bot_id}.log"
+
+
+def start_bot(bot_id):
+    if bot_id not in BOTS:
+        return {"error": "unknown bot"}, 404
+
+    process = BOT_PROCESSES.get(bot_id)
+    if process_running(process):
+        return {"ok": True, "message": "already running", "bot": bot_id}, 200
+
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    config = BOTS[bot_id]
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(ROOT / "src")
+    env.update(config.get("env", {}))
+    log_file = log_path(bot_id).open("a")
+    process = subprocess.Popen(
+        [sys.executable, str(ROOT / "src" / config["script"])],
+        cwd=ROOT,
+        env=env,
+        stdout=log_file,
+        stderr=subprocess.STDOUT,
+        start_new_session=True,
+    )
+    BOT_PROCESSES[bot_id] = process
+    return {"ok": True, "message": "started", "bot": bot_id, "pid": process.pid}, 200
+
+
+def stop_bot(bot_id):
+    if bot_id not in BOTS:
+        return {"error": "unknown bot"}, 404
+
+    process = BOT_PROCESSES.get(bot_id)
+    if not process_running(process):
+        return {"ok": True, "message": "not running", "bot": bot_id}, 200
+
+    os.killpg(process.pid, signal.SIGINT)
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        os.killpg(process.pid, signal.SIGTERM)
+        process.wait(timeout=5)
+
+    return {"ok": True, "message": "stopped", "bot": bot_id}, 200
 
 
 def json_response(handler, payload, status=200):
     body = json.dumps(payload).encode()
     handler.send_response(status)
     handler.send_header("Content-Type", "application/json")
+    handler.send_header("Cache-Control", "no-store")
     handler.send_header("Content-Length", str(len(body)))
     handler.end_headers()
     handler.wfile.write(body)
@@ -164,9 +308,34 @@ class DashboardHandler(BaseHTTPRequestHandler):
         content_type = mimetypes.guess_type(file_path.name)[0] or "application/octet-stream"
         self.send_response(200)
         self.send_header("Content-Type", content_type)
+        self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def do_POST(self):
+        path = urlparse(self.path).path
+        content_length = int(self.headers.get("Content-Length", "0"))
+        raw_body = self.rfile.read(content_length) if content_length else b"{}"
+
+        try:
+            body = json.loads(raw_body.decode() or "{}")
+        except json.JSONDecodeError:
+            json_response(self, {"error": "invalid json"}, status=400)
+            return
+
+        bot_id = body.get("botId")
+        if path == "/api/bots/start":
+            payload, status = start_bot(bot_id)
+            json_response(self, payload, status=status)
+            return
+
+        if path == "/api/bots/stop":
+            payload, status = stop_bot(bot_id)
+            json_response(self, payload, status=status)
+            return
+
+        json_response(self, {"error": "unknown endpoint"}, status=404)
 
 
 def main():
