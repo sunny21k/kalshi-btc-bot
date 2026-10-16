@@ -6,6 +6,7 @@ import {
   Bot,
   CircleDollarSign,
   Gauge,
+  Menu,
   Moon,
   Play,
   RefreshCw,
@@ -85,6 +86,21 @@ type BotStatus = {
 
 const moneyClass = (value: string) => Number(value || 0) >= 0 ? 'money-positive' : 'money-negative';
 const fmtPct = (value: number | null) => value === null ? 'N/A' : `${value.toFixed(2)}%`;
+const shortId = (value?: string) => value ? value.replace(/^paper-|^live-|^scalp-/, '').slice(0, 8) : '';
+const fmtDateTime = (value?: string) => {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString([], {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+};
+const eventClass = (event?: string) => event === 'OPEN' ? 'event-open' : event === 'CLOSE' ? 'event-close' : 'muted-text';
+const eventRowClass = (event?: string) => event === 'OPEN' ? 'event-row-open' : event === 'CLOSE' ? 'event-row-close' : '';
 type TabId = 'btc15_paper' | 'btc15_live' | 'scalp_paper' | 'shadow';
 
 const emptyScalp: ScalpStats = {
@@ -103,9 +119,9 @@ const emptyScalp: ScalpStats = {
 
 function Metric({ label, value, tone, large }: { label: string; value: React.ReactNode; tone?: string; large?: boolean }) {
   return (
-    <div className="surface-card border px-4 py-3">
+    <div className="surface-card metric-box border px-3 py-2">
       <div className="muted-text text-xs font-medium uppercase tracking-wide">{label}</div>
-      <div className={`mt-1 font-semibold tabular-nums ${large ? 'text-2xl' : 'text-lg'} ${tone ?? ''}`}>{value}</div>
+      <div className={`mt-0.5 font-semibold tabular-nums ${large ? 'text-xl' : 'text-base'} ${tone ?? ''}`}>{value}</div>
     </div>
   );
 }
@@ -132,7 +148,7 @@ function TradePanel({ title, stats, live }: { title: string; stats: TradeStats; 
           {live ? 'Live money' : 'Paper'}
         </span>
       </div>
-      <div className="grid grid-cols-2 gap-2 lg:grid-cols-3 2xl:grid-cols-6">
+      <div className="grid grid-cols-2 gap-1.5 lg:grid-cols-3 2xl:grid-cols-6">
         <Metric label="Total" value={stats.total} />
         <Metric label="Settled" value={stats.settled} />
         <Metric label="Unsettled" value={stats.unsettled} />
@@ -140,7 +156,7 @@ function TradePanel({ title, stats, live }: { title: string; stats: TradeStats; 
         <Metric label="P/L" value={`$${stats.profitLoss}`} tone={moneyClass(stats.profitLoss)} />
         <Metric label="ROI" value={fmtPct(stats.roi)} />
       </div>
-      <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
+      <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
         <SideCard label="YES" stats={stats.yes} icon={<TrendingUp size={16} />} />
         <SideCard label="NO" stats={stats.no} icon={<TrendingDown size={16} />} />
       </div>
@@ -187,12 +203,13 @@ function RecentTrades({ title, rows }: { title: string; rows: TradeRow[] }) {
       <div className="overflow-x-auto">
         <table className="w-full text-left text-sm">
           <thead className="muted-text text-xs">
-            <tr><th>Time</th><th>Ticker</th><th>Side</th><th>Entry</th><th>Result</th><th>P/L</th><th>Strategy</th></tr>
+            <tr><th>ID</th><th>Made</th><th>Ticker</th><th>Side</th><th>Entry</th><th>Result</th><th>P/L</th><th>Strategy</th></tr>
           </thead>
           <tbody>
             {items.map((row, index) => (
               <tr className="row-border border-t" key={`${row.ticker}-${index}`}>
-                <td className="py-2">{(row.timestamp ?? '').slice(11, 19)}</td>
+                <td className="muted-text py-2 font-mono text-xs">{shortId(row.trade_id)}</td>
+                <td className="py-2 whitespace-nowrap">{fmtDateTime(row.timestamp)}</td>
                 <td className="max-w-[220px] truncate">{row.ticker}</td>
                 <td>{row.side}</td>
                 <td>{row.entry_price}</td>
@@ -203,7 +220,7 @@ function RecentTrades({ title, rows }: { title: string; rows: TradeRow[] }) {
             ))}
             {!items.length && (
               <tr className="row-border border-t">
-                <td className="muted-text py-3" colSpan={7}>No trades yet</td>
+                <td className="muted-text py-3" colSpan={8}>No trades yet</td>
               </tr>
             )}
           </tbody>
@@ -412,7 +429,7 @@ function CountTable({ title, rows }: { title: string; rows: Record<string, numbe
   return (
     <section className="surface-card border p-4">
       <h2 className="section-title mb-3 text-sm font-semibold uppercase tracking-wide">{title}</h2>
-      <div className="grid gap-2">
+      <div className="grid gap-1.5">
         {entries.map(([name, count]) => (
           <div className="surface-soft flex items-center justify-between border px-3 py-2 text-sm" key={name}>
             <span>{name}</span>
@@ -429,12 +446,12 @@ function CountTable({ title, rows }: { title: string; rows: Record<string, numbe
 
 function ScalpPanel({ stats }: { stats: ScalpStats }) {
   return (
-    <section className="surface-panel border p-4">
-      <div className="mb-3 flex items-center justify-between">
-        <h2 className="section-title text-sm font-semibold uppercase tracking-wide">Scalp Paper Stats</h2>
-        <span className="muted-text text-xs font-semibold uppercase tracking-wide">Paper only</span>
+    <section className="surface-panel border">
+      <div className="table-header flex items-center justify-between border-b px-3 py-2">
+        <h2 className="section-title text-xs font-semibold uppercase tracking-wide">Scalp Paper</h2>
+        <span className="muted-text text-xs font-semibold uppercase tracking-wide">5s momentum</span>
       </div>
-      <div className="grid grid-cols-2 gap-2 lg:grid-cols-3 2xl:grid-cols-6">
+      <div className="grid grid-cols-2 gap-1.5 p-3 lg:grid-cols-3 2xl:grid-cols-6">
         <Metric label="Entries" value={stats.total} />
         <Metric label="Closed" value={stats.closed} />
         <Metric label="Open" value={stats.open} />
@@ -450,29 +467,33 @@ function ScalpTrades({ rows }: { rows: TradeRow[] }) {
   const items = rows ?? [];
 
   return (
-    <section className="surface-card border p-4">
-      <h2 className="section-title mb-3 text-sm font-semibold uppercase tracking-wide">Recent Scalp Events</h2>
-      <div className="overflow-x-auto">
-        <table className="w-full text-left text-sm">
+    <section className="surface-card border">
+      <div className="table-header flex items-center justify-between border-b px-3 py-2">
+        <h2 className="section-title text-xs font-semibold uppercase tracking-wide">Recent Scalp Events</h2>
+        <span className="muted-text text-xs tabular-nums">{items.length} rows</span>
+      </div>
+      <div className="max-h-[520px] overflow-auto">
+        <table className="compact-table w-full text-left">
           <thead className="muted-text text-xs">
-            <tr><th>Time</th><th>Event</th><th>Ticker</th><th>Side</th><th>Entry</th><th>Exit</th><th>P/L</th><th>Reason</th></tr>
+            <tr><th>ID</th><th>Event</th><th>Side</th><th>Opened</th><th>Sold</th><th>Entry</th><th>Exit</th><th>P/L</th><th>Reason</th></tr>
           </thead>
           <tbody>
             {items.map((row, index) => (
-              <tr className="row-border border-t" key={`${row.trade_id}-${row.event}-${index}`}>
-                <td className="py-2">{(row.timestamp ?? '').slice(11, 19)}</td>
-                <td>{row.event}</td>
-                <td className="max-w-[220px] truncate">{row.ticker}</td>
+              <tr className={`row-border border-t ${eventRowClass(row.event)}`} key={`${row.trade_id}-${row.event}-${index}`}>
+                <td className="muted-text py-2 font-mono text-xs">{shortId(row.trade_id)}</td>
+                <td className={`font-semibold ${eventClass(row.event)}`}>{row.event}</td>
                 <td>{row.side}</td>
+                <td className="py-2 whitespace-nowrap">{fmtDateTime(row.opened_at || (row.event === 'OPEN' ? row.timestamp : ''))}</td>
+                <td className="py-2 whitespace-nowrap">{fmtDateTime(row.closed_at || (row.event === 'CLOSE' ? row.timestamp : ''))}</td>
                 <td>{row.entry_price}</td>
                 <td>{row.exit_price}</td>
                 <td className={moneyClass(row.profit_loss)}>{row.profit_loss}</td>
-                <td className="max-w-[260px] truncate">{row.reason}</td>
+                <td className="max-w-[320px] truncate" title={row.reason}>{row.reason}</td>
               </tr>
             ))}
             {!items.length && (
               <tr className="row-border border-t">
-                <td className="muted-text py-3" colSpan={8}>No scalp events yet</td>
+                <td className="muted-text py-3" colSpan={9}>No scalp events yet</td>
               </tr>
             )}
           </tbody>
@@ -496,7 +517,7 @@ function ShadowTrades({ rows }: { rows: TradeRow[] }) {
           <tbody>
             {items.map((row, index) => (
               <tr className="row-border border-t" key={`${row.ticker}-${row.reason}-${index}`}>
-                <td className="py-2">{(row.timestamp ?? '').slice(11, 19)}</td>
+                <td className="py-2 whitespace-nowrap">{fmtDateTime(row.timestamp)}</td>
                 <td className="max-w-[220px] truncate">{row.ticker}</td>
                 <td>{row.decision}</td>
                 <td>{row.side}</td>
@@ -521,13 +542,13 @@ function BotWorkspace({ active, data, onAction }: { active: TabId; data: Dashboa
 
   if (active === 'btc15_paper') {
     return (
-      <div className="grid gap-4 2xl:grid-cols-[360px_1fr]">
-        <div className="grid content-start gap-4">
+      <div className="grid gap-3 2xl:grid-cols-[300px_1fr]">
+        <div className="grid content-start gap-3">
           <SingleBotControl bot={botById.btc15_paper} onAction={onAction} />
           <BucketTable title="Paper by Strategy" buckets={data.paper.byStrategy} />
           <BucketTable title="Paper by Time" buckets={data.paper.byTime} />
         </div>
-        <div className="grid content-start gap-4">
+        <div className="grid content-start gap-3">
           <TradePanel title="15m Paper Trading" stats={data.paper} />
           <RecentTrades title="Recent Paper Trades" rows={data.paper.recent} />
         </div>
@@ -537,14 +558,14 @@ function BotWorkspace({ active, data, onAction }: { active: TabId; data: Dashboa
 
   if (active === 'btc15_live') {
     return (
-      <div className="grid gap-4 2xl:grid-cols-[360px_1fr]">
-        <div className="grid content-start gap-4">
+      <div className="grid gap-3 2xl:grid-cols-[300px_1fr]">
+        <div className="grid content-start gap-3">
           <SingleBotControl bot={botById.btc15_live} onAction={onAction} />
           <RiskNotes />
           <BucketTable title="Live by Strategy" buckets={data.live.byStrategy} />
           <BucketTable title="Live by Time" buckets={data.live.byTime} />
         </div>
-        <div className="grid content-start gap-4">
+        <div className="grid content-start gap-3">
           <TradePanel title="15m Live Trading" stats={data.live} live />
           <RecentTrades title="Recent Live Trades" rows={data.live.recent} />
         </div>
@@ -554,12 +575,12 @@ function BotWorkspace({ active, data, onAction }: { active: TabId; data: Dashboa
 
   if (active === 'scalp_paper') {
     return (
-      <div className="grid gap-4 2xl:grid-cols-[360px_1fr]">
-        <div className="grid content-start gap-4">
+      <div className="grid gap-3 2xl:grid-cols-[280px_1fr]">
+        <div className="grid content-start gap-3">
           <SingleBotControl bot={botById.scalp_paper} onAction={onAction} />
           <CountTable title="Scalp Reasons" rows={data.scalp.byReason} />
         </div>
-        <div className="grid content-start gap-4">
+        <div className="grid content-start gap-3">
           <ScalpPanel stats={data.scalp} />
           <ScalpTrades rows={data.scalp.recent} />
         </div>
@@ -568,8 +589,8 @@ function BotWorkspace({ active, data, onAction }: { active: TabId; data: Dashboa
   }
 
   return (
-    <div className="grid gap-4 2xl:grid-cols-[360px_1fr]">
-      <div className="grid content-start gap-4">
+    <div className="grid gap-3 2xl:grid-cols-[300px_1fr]">
+      <div className="grid content-start gap-3">
         <ShadowPanel shadow={data.shadow} />
         <CountTable title="Shadow Decisions" rows={data.shadow.decisions} />
       </div>
@@ -581,7 +602,7 @@ function BotWorkspace({ active, data, onAction }: { active: TabId; data: Dashboa
 function App() {
   const [data, setData] = React.useState<DashboardStats | null>(null);
   const [updated, setUpdated] = React.useState('');
-  const [theme, setTheme] = React.useState(() => localStorage.getItem('dashboard-theme') ?? 'light');
+  const [theme, setTheme] = React.useState(() => localStorage.getItem('dashboard-theme') ?? 'dark');
   const [activeTab, setActiveTab] = React.useState<TabId>('btc15_paper');
 
   const load = React.useCallback(async () => {
@@ -621,14 +642,18 @@ function App() {
 
   return (
     <div className="app-shell min-h-screen">
-      <header className="surface-header border-b px-5 py-4">
-        <div className="mx-auto flex max-w-[1600px] flex-wrap items-center justify-between gap-3">
-          <div>
-            <div className="mb-1 flex items-center gap-2">
-              <Gauge size={20} className="text-blue-400" />
-              <h1 className="text-xl font-semibold">Kalshi BTC Command Center</h1>
+      <header className="surface-header border-b px-4 py-3">
+        <div className="mx-auto flex max-w-[1180px] flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-5">
+            <div className="flex items-center gap-2">
+              <Gauge size={18} className="text-emerald-400" />
+              <h1 className="text-lg font-semibold tracking-tight">Kalshi BTC</h1>
             </div>
-            <p className="muted-text text-sm">Bot controls, trade logs, and risk state</p>
+            <nav className="hidden items-center gap-5 text-xs font-semibold uppercase tracking-[0.22em] md:flex">
+              <span className="terminal-nav-active">Bots</span>
+              <span className="muted-text">Trades</span>
+              <span className="muted-text">Risk</span>
+            </nav>
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -641,10 +666,13 @@ function App() {
             <button onClick={load} className="surface-button inline-flex items-center gap-2 border px-3 py-2 text-sm font-medium">
               <RefreshCw size={16} /> {updated || 'Refresh'}
             </button>
+            <button className="surface-button inline-flex items-center gap-2 border px-3 py-2 text-sm font-medium md:hidden">
+              <Menu size={16} />
+            </button>
           </div>
         </div>
       </header>
-      <main className="dashboard-frame mx-auto max-w-[1600px]">
+      <main className="dashboard-frame mx-auto max-w-[1180px]">
         <BotTabs active={activeTab} onChange={setActiveTab} data={data} />
         <section className="dashboard-content">
           <BotWorkspace active={activeTab} data={data} onAction={botAction} />

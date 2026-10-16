@@ -6,7 +6,8 @@ from decimal import Decimal
 from bot import get_current_market, get_seconds_remaining, get_yes_quote
 from btc_feed import get_btc_price
 from kalshi_api import get_orderbook
-from scalp_execution import close_position, open_position
+from run_lock import RunLock
+from scalp_execution import close_position, initialize_scalp_file, open_position
 from scalp_strategy import (
     build_candle,
     choose_scalp_entry,
@@ -16,9 +17,21 @@ from scalp_strategy import (
 
 POLL_SECONDS = Decimal(os.getenv("SCALP_POLL_SECONDS", "1"))
 CONTRACTS = int(os.getenv("SCALP_CONTRACTS", "1"))
-TRAILING_ACTIVATION = Decimal(os.getenv("SCALP_TRAILING_ACTIVATION_DOLLARS", "50"))
-TRAILING_FLOOR = Decimal(os.getenv("SCALP_TRAILING_FLOOR_DOLLARS", "35"))
-STOP_LOSS = Decimal(os.getenv("SCALP_STOP_LOSS_DOLLARS", "20"))
+ALLOWED_SIDES = tuple(
+    side.strip().upper()
+    for side in os.getenv("SCALP_ALLOWED_SIDES", "YES,NO").split(",")
+    if side.strip()
+)
+COOLDOWN_SECONDS = Decimal(os.getenv("SCALP_COOLDOWN_SECONDS", "30"))
+MIN_SECONDS_REMAINING = Decimal(os.getenv("SCALP_MIN_SECONDS_REMAINING", "90"))
+TRAILING_ACTIVATION = Decimal(os.getenv("SCALP_TRAILING_ACTIVATION_DOLLARS", "0.03"))
+TRAILING_GIVEBACK = Decimal(
+    os.getenv(
+        "SCALP_TRAILING_GIVEBACK_DOLLARS",
+        os.getenv("SCALP_TRAILING_FLOOR_DOLLARS", "0.01"),
+    )
+)
+STOP_LOSS = Decimal(os.getenv("SCALP_STOP_LOSS_DOLLARS", "0.03"))
 
 
 def candle_bucket(timestamp, seconds):
@@ -45,11 +58,16 @@ def closed_candles(tick_store, *, now, seconds, limit=20):
 
 
 def main():
+    initialize_scalp_file()
+
     print("Starting PAPER scalp bot...")
     print("This bot does not place live orders.")
     print(f"Contracts: {CONTRACTS}")
+    print(f"Allowed sides: {', '.join(ALLOWED_SIDES)}")
+    print(f"Cooldown: {COOLDOWN_SECONDS}s")
+    print(f"Minimum time remaining: {MIN_SECONDS_REMAINING}s")
     print(f"Trailing activation: ${TRAILING_ACTIVATION}")
-    print(f"Trailing floor: ${TRAILING_FLOOR}")
+    print(f"Trailing giveback: ${TRAILING_GIVEBACK}")
     print(f"Stop loss: ${STOP_LOSS}")
 
     tick_store = {
@@ -57,6 +75,7 @@ def main():
         15: defaultdict(list),
     }
     position = None
+    cooldown_until = Decimal("0")
 
     while True:
         try:
@@ -102,7 +121,7 @@ def main():
                     yes_bid=yes_bid,
                     no_bid=no_bid,
                     trailing_activation=TRAILING_ACTIVATION,
-                    trailing_floor=TRAILING_FLOOR,
+                    trailing_giveback=TRAILING_GIVEBACK,
                     stop_loss=STOP_LOSS,
                 )
                 close_position(
@@ -114,15 +133,31 @@ def main():
                 )
                 print("Closed position because market changed.")
                 position = None
+                cooldown_until = now + COOLDOWN_SECONDS
 
             if position is None:
-                entry = choose_scalp_entry(
-                    candles_5s,
-                    candles_15s,
-                    yes_ask=yes_ask,
-                    no_ask=no_ask,
-                    spread=spread,
-                )
+                if now < cooldown_until:
+                    entry = {
+                        "decision": "WAIT",
+                        "reason": "cooldown after exit",
+                    }
+                elif (
+                    seconds_remaining is not None
+                    and Decimal(str(seconds_remaining)) < MIN_SECONDS_REMAINING
+                ):
+                    entry = {
+                        "decision": "WAIT",
+                        "reason": "inside final scalp cutoff",
+                    }
+                else:
+                    entry = choose_scalp_entry(
+                        candles_5s,
+                        candles_15s,
+                        yes_ask=yes_ask,
+                        no_ask=no_ask,
+                        spread=spread,
+                        allowed_sides=ALLOWED_SIDES,
+                    )
                 print(f"Decision: {entry['decision']} | {entry['reason']}")
 
                 if entry["decision"] in ("BUY YES", "BUY NO"):
@@ -145,7 +180,7 @@ def main():
                     yes_bid=yes_bid,
                     no_bid=no_bid,
                     trailing_activation=TRAILING_ACTIVATION,
-                    trailing_floor=TRAILING_FLOOR,
+                    trailing_giveback=TRAILING_GIVEBACK,
                     stop_loss=STOP_LOSS,
                 )
                 position["peak_profit"] = exit_signal["peak_profit"]
@@ -167,6 +202,7 @@ def main():
                     )
                     print("CLOSED position.")
                     position = None
+                    cooldown_until = now + COOLDOWN_SECONDS
 
             time.sleep(float(POLL_SECONDS))
 
@@ -176,4 +212,8 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        with RunLock("scalp_paper_bot"):
+            main()
+    except RuntimeError as exc:
+        print(f"Scalp bot already running: {exc}")

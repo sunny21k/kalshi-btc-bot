@@ -13,6 +13,7 @@ from strategy import (
 from data_logger import log_market_data
 from live_execution import place_live_trade
 from paper_execution import record_paper_trade
+from run_lock import RunLock
 from shadow_logger import log_shadow_signal
 
 
@@ -140,6 +141,8 @@ def main():
 
     print("Starting BTC + Kalshi bot...")
     print("Mode: LIVE MONEY" if LIVE_TRADING_ENABLED else "Mode: PAPER")
+    if not LIVE_TRADING_ENABLED:
+        print("Paper test: NO trades only")
 
     previous_btc_price = None
     recent_btc_prices = deque(maxlen=4)
@@ -230,6 +233,12 @@ def main():
                     else 0
                 ),
             )
+            if not LIVE_TRADING_ENABLED and trade_signal["decision"] == "BUY YES":
+                trade_signal = {
+                    **trade_signal,
+                    "decision": "WAIT",
+                    "reason": "15m paper test is NO-only",
+                }
             if decision_key := trade_signal.get("side"):
                 previous_entry_prices[(ticker, decision_key)] = (
                     trade_signal.get("entry_price")
@@ -434,4 +443,9 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    lock_name = "btc15_live_bot" if LIVE_TRADING_ENABLED else "btc15_paper_bot"
+    try:
+        with RunLock(lock_name):
+            main()
+    except RuntimeError as exc:
+        print(f"Bot already running: {exc}")

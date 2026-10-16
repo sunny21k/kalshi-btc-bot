@@ -60,6 +60,7 @@ class PaperExecutionTests(unittest.TestCase):
         self.assertFalse(duplicate)
         self.assertEqual(1, len(rows))
         self.assertEqual(paper_execution.FIELDNAMES, list(rows[0].keys()))
+        self.assertTrue(rows[0]["trade_id"].startswith("paper-"))
         self.assertEqual("YES", rows[0]["side"])
         self.assertEqual("0.5800", rows[0]["entry_price"])
         self.assertEqual("0.5800", rows[0]["cost"])
@@ -71,6 +72,7 @@ class PaperExecutionTests(unittest.TestCase):
         paper_execution.write_trade_rows([
             {
                 "timestamp": "t1",
+                "trade_id": "paper-yes",
                 "ticker": "YES-WIN",
                 "side": "YES",
                 "prediction": "UP",
@@ -85,6 +87,7 @@ class PaperExecutionTests(unittest.TestCase):
             },
             {
                 "timestamp": "t2",
+                "trade_id": "paper-no",
                 "ticker": "NO-WIN",
                 "side": "NO",
                 "prediction": "DOWN",
@@ -99,6 +102,7 @@ class PaperExecutionTests(unittest.TestCase):
             },
             {
                 "timestamp": "t3",
+                "trade_id": "paper-already",
                 "ticker": "ALREADY",
                 "side": "YES",
                 "prediction": "UP",
@@ -147,6 +151,7 @@ class LiveExecutionTests(unittest.TestCase):
         row = {field: "" for field in live_execution.FIELDNAMES}
         row.update({
             "timestamp": datetime.now(timezone.utc).isoformat(),
+            "trade_id": "live-test",
             "ticker": "KXBTC15M-LIVE",
             "side": "YES",
             "prediction": "UP",
@@ -198,6 +203,8 @@ class LiveExecutionTests(unittest.TestCase):
         self.assertEqual(Decimal("0.8000"), Decimal(calls[0][1]["price"]))
         self.assertEqual(1, len(rows))
         self.assertEqual(live_execution.FIELDNAMES, list(rows[0].keys()))
+        self.assertTrue(rows[0]["trade_id"].startswith("live-"))
+        self.assertTrue(rows[0]["client_order_id"].startswith("btc15m-live-"))
         self.assertEqual("YES", rows[0]["side"])
         self.assertEqual("0.8000", rows[0]["entry_price"])
         self.assertEqual("0.8000", rows[0]["max_cost"])
@@ -228,10 +235,31 @@ class LiveExecutionTests(unittest.TestCase):
         self.assertEqual("ask", rows[0]["order_side"])
         self.assertEqual("0.1800", rows[0]["order_price"])
 
+    def test_live_duplicate_guard_blocks_failed_attempts_too(self):
+        live_execution.write_live_trade_rows([
+            self.live_row(
+                ticker="KXBTC15M-FAILED",
+                status="ERROR",
+                error="bad request",
+            )
+        ])
+
+        recorded = live_execution.place_live_trade(
+            ticker="KXBTC15M-FAILED",
+            side="YES",
+            prediction="UP",
+            entry_price=Decimal("0.80"),
+            contracts=1,
+            create_order_fn=lambda ticker, **kwargs: {},
+        )
+
+        self.assertFalse(recorded)
+
     def test_live_settlement_updates_unsettled_rows(self):
         live_execution.write_live_trade_rows([
             {
                 "timestamp": "t1",
+                "trade_id": "live-yes",
                 "ticker": "LIVE-YES",
                 "side": "YES",
                 "prediction": "UP",
@@ -251,6 +279,7 @@ class LiveExecutionTests(unittest.TestCase):
             },
             {
                 "timestamp": "t2",
+                "trade_id": "live-no",
                 "ticker": "LIVE-NO",
                 "side": "NO",
                 "prediction": "DOWN",

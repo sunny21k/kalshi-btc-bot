@@ -5,7 +5,9 @@ import os
 import signal
 import subprocess
 import sys
+import time
 from collections import Counter, defaultdict
+from datetime import datetime, timezone
 from decimal import Decimal
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -21,16 +23,17 @@ SHADOW_FILE = DATA_DIR / "shadow_signals.csv"
 SCALP_FILE = DATA_DIR / "scalp_paper_trades.csv"
 LOG_DIR = DATA_DIR / "bot_logs"
 BOT_PROCESSES = {}
+STARTUP_CHECK_SECONDS = 0.35
 
 
 BOTS = {
     "btc15_paper": {
-        "name": "15m Paper Bot",
+        "name": "15m Paper Bot (NO Only)",
         "script": "bot.py",
         "mode": "paper",
         "description": (
-            "Trades the 15-minute BTC Kalshi markets using the target-distance "
-            "rules, momentum checks, spread filter, and paper logging."
+            "Paper tests NO trades only on 15-minute BTC Kalshi markets using "
+            "the target-distance rules, momentum checks, and spread filter."
         ),
         "env": {"KALSHI_LIVE_TRADING": "false"},
     },
@@ -49,8 +52,8 @@ BOTS = {
         "script": "scalp_bot.py",
         "mode": "paper",
         "description": (
-            "Fast paper-only bot using 5-second candles, 15-second confirmation, "
-            "candle-shrink exits, trailing profit floor, and stop loss."
+            "Fast paper-only bot using 5-second momentum with 15-second confirmation, "
+            "NO-only entries by default, trailing giveback exits, and a 3-cent stop."
         ),
         "env": {},
     },
@@ -155,7 +158,12 @@ def shadow_stats(rows):
 
 
 def scalp_stats(rows):
-    valid_rows = [row for row in rows if not row.get("error")]
+    valid_rows = [
+        row for row in rows
+        if not row.get("error")
+        and row.get("event") in ("OPEN", "CLOSE")
+        and str(row.get("trade_id", "")).startswith("scalp-")
+    ]
     opens = [row for row in valid_rows if row.get("event") == "OPEN"]
     closes = [row for row in valid_rows if row.get("event") == "CLOSE"]
     closed_ids = {row.get("trade_id") for row in closes}
@@ -221,12 +229,21 @@ def log_path(bot_id):
     return LOG_DIR / f"{bot_id}.log"
 
 
+def dashboard_event(message):
+    timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    print(f"[{timestamp}] {message}", flush=True)
+
+
 def start_bot(bot_id):
     if bot_id not in BOTS:
+        dashboard_event(f"START failed | unknown bot: {bot_id}")
         return {"error": "unknown bot"}, 404
 
     process = BOT_PROCESSES.get(bot_id)
     if process_running(process):
+        dashboard_event(
+            f"START skipped | {BOTS[bot_id]['name']} already running | pid={process.pid}"
+        )
         return {"ok": True, "message": "already running", "bot": bot_id}, 200
 
     LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -243,26 +260,62 @@ def start_bot(bot_id):
         stderr=subprocess.STDOUT,
         start_new_session=True,
     )
+    time.sleep(STARTUP_CHECK_SECONDS)
+    return_code = process.poll()
+    if return_code is not None:
+        dashboard_event(
+            f"START failed | {config['name']} exited immediately | return_code={return_code}"
+        )
+        return {
+            "ok": False,
+            "message": "bot exited immediately; check log",
+            "bot": bot_id,
+            "returnCode": return_code,
+            "logFile": str(log_path(bot_id).relative_to(ROOT)),
+        }, 409
+
     BOT_PROCESSES[bot_id] = process
+    dashboard_event(
+        f"STARTED | {config['name']} | pid={process.pid} | log={log_path(bot_id).relative_to(ROOT)}"
+    )
     return {"ok": True, "message": "started", "bot": bot_id, "pid": process.pid}, 200
 
 
-def stop_bot(bot_id):
-    if bot_id not in BOTS:
-        return {"error": "unknown bot"}, 404
-
-    process = BOT_PROCESSES.get(bot_id)
+def stop_process(bot_id, process):
     if not process_running(process):
-        return {"ok": True, "message": "not running", "bot": bot_id}, 200
+        return
 
+    dashboard_event(f"STOPPING | {BOTS[bot_id]['name']} | pid={process.pid}")
     os.killpg(process.pid, signal.SIGINT)
     try:
         process.wait(timeout=5)
     except subprocess.TimeoutExpired:
+        dashboard_event(f"STOP escalation | {BOTS[bot_id]['name']} | sending SIGTERM")
         os.killpg(process.pid, signal.SIGTERM)
         process.wait(timeout=5)
 
+    dashboard_event(
+        f"STOPPED | {BOTS[bot_id]['name']} | return_code={process.returncode}"
+    )
+
+
+def stop_bot(bot_id):
+    if bot_id not in BOTS:
+        dashboard_event(f"STOP failed | unknown bot: {bot_id}")
+        return {"error": "unknown bot"}, 404
+
+    process = BOT_PROCESSES.get(bot_id)
+    if not process_running(process):
+        dashboard_event(f"STOP skipped | {BOTS[bot_id]['name']} is not running")
+        return {"ok": True, "message": "not running", "bot": bot_id}, 200
+
+    stop_process(bot_id, process)
     return {"ok": True, "message": "stopped", "bot": bot_id}, 200
+
+
+def stop_all_bots():
+    for bot_id, process in list(BOT_PROCESSES.items()):
+        stop_process(bot_id, process)
 
 
 def json_response(handler, payload, status=200):
@@ -276,6 +329,9 @@ def json_response(handler, payload, status=200):
 
 
 class DashboardHandler(BaseHTTPRequestHandler):
+    def log_message(self, format, *args):
+        return
+
     def do_GET(self):
         path = urlparse(self.path).path
         if path == "/api/stats":
@@ -357,7 +413,13 @@ def main():
         raise RuntimeError(f"No free dashboard port found from {port} to {port + 19}")
 
     print(f"Dashboard running at http://{host}:{selected_port}", flush=True)
-    server.serve_forever()
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\nDashboard stopping...", flush=True)
+        stop_all_bots()
+    finally:
+        server.server_close()
 
 
 if __name__ == "__main__":

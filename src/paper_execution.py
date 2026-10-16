@@ -1,5 +1,6 @@
 import csv
 import os
+import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
 
@@ -7,6 +8,7 @@ from decimal import Decimal
 TRADE_FILE = "data/paper_trades.csv"
 FIELDNAMES = [
     "timestamp",
+    "trade_id",
     "ticker",
     "side",
     "prediction",
@@ -56,6 +58,7 @@ def normalize_trade_row(row):
 
     return {
         "timestamp": row.get("timestamp", ""),
+        "trade_id": row.get("trade_id") or legacy_trade_id("paper", row),
         "ticker": row.get("ticker", ""),
         "side": side,
         "prediction": prediction,
@@ -70,6 +73,16 @@ def normalize_trade_row(row):
         "profit_loss": row.get("profit_loss") or row.get("pnl") or "",
         "correct": normalize_correct(row),
     }
+
+
+def legacy_trade_id(prefix, row):
+    source = "|".join([
+        row.get("timestamp", ""),
+        row.get("ticker", ""),
+        row.get("side", ""),
+        row.get("prediction", ""),
+    ])
+    return f"{prefix}-{uuid.uuid5(uuid.NAMESPACE_URL, source)}"
 
 
 def calculate_cost(entry_price, contracts):
@@ -149,6 +162,7 @@ def record_paper_trade(
         writer = csv.DictWriter(file, fieldnames=FIELDNAMES)
         writer.writerow({
             "timestamp": datetime.now(timezone.utc).isoformat(),
+            "trade_id": f"paper-{uuid.uuid4()}",
             "ticker": ticker,
             "side": side,
             "prediction": prediction,

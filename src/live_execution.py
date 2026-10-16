@@ -15,6 +15,7 @@ MAX_LIVE_TRADES_PER_DAY = 30
 MAX_DAILY_LIVE_LOSS = Decimal(os.getenv("KALSHI_MAX_DAILY_LIVE_LOSS", "10"))
 FIELDNAMES = [
     "timestamp",
+    "trade_id",
     "ticker",
     "side",
     "prediction",
@@ -54,10 +55,27 @@ def initialize_live_trade_file():
         return
 
     migrated_rows = [
-        {field: row.get(field, "") for field in FIELDNAMES}
+        normalize_live_trade_row(row)
         for row in rows
     ]
     write_live_trade_rows(migrated_rows)
+
+
+def normalize_live_trade_row(row):
+    normalized = {field: row.get(field, "") for field in FIELDNAMES}
+    if not normalized["trade_id"]:
+        normalized["trade_id"] = legacy_trade_id("live", row)
+    return normalized
+
+
+def legacy_trade_id(prefix, row):
+    source = "|".join([
+        row.get("timestamp", ""),
+        row.get("ticker", ""),
+        row.get("side", ""),
+        row.get("client_order_id", ""),
+    ])
+    return f"{prefix}-{uuid.uuid5(uuid.NAMESPACE_URL, source)}"
 
 
 def write_live_trade_rows(rows):
@@ -74,7 +92,7 @@ def has_live_traded(ticker):
         reader = csv.DictReader(file)
 
         for row in reader:
-            if row["ticker"] == ticker and not row.get("error"):
+            if row["ticker"] == ticker:
                 return True
 
     return False
@@ -215,10 +233,12 @@ def place_live_trade(
         raise ValueError("Live trade cost exceeds $1.00 max")
 
     order_side, order_price = order_details_for_side(side, entry_price)
-    client_order_id = f"btc15m-live-{uuid.uuid4()}"
+    trade_id = f"live-{uuid.uuid4()}"
+    client_order_id = f"btc15m-{trade_id}"
 
     base_row = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
+        "trade_id": trade_id,
         "ticker": ticker,
         "side": side,
         "prediction": prediction,

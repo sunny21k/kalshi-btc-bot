@@ -2,9 +2,9 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 
-MIN_ENTRY_PRICE = Decimal("0.20")
-MAX_ENTRY_PRICE = Decimal("0.95")
-MAX_SPREAD = Decimal("0.05")
+MIN_ENTRY_PRICE = Decimal("0.01")
+MAX_ENTRY_PRICE = Decimal("0.99")
+MAX_SPREAD = Decimal("0.08")
 
 
 @dataclass
@@ -55,7 +55,15 @@ def candles_shrinking(candles, *, count=3):
     return all(bodies[index] < bodies[index - 1] for index in range(1, len(bodies)))
 
 
-def choose_scalp_entry(candles_5s, candles_15s, *, yes_ask, no_ask, spread):
+def choose_scalp_entry(
+    candles_5s,
+    candles_15s,
+    *,
+    yes_ask,
+    no_ask,
+    spread,
+    allowed_sides=("YES", "NO"),
+):
     if len(candles_5s) < 3 or len(candles_15s) < 1:
         return wait("not enough candle history")
 
@@ -65,23 +73,34 @@ def choose_scalp_entry(candles_5s, candles_15s, *, yes_ask, no_ask, spread):
 
     recent_5s = candles_5s[-3:]
     directions = [candle.direction for candle in recent_5s]
-    confirmation_direction = candles_15s[-1].direction
+    latest_direction = directions[-1]
+    confirmation_direction = candles_15s[-1].direction if candles_15s else "FLAT"
 
-    if directions.count("UP") == 3 and confirmation_direction != "DOWN":
+    if (
+        "YES" in allowed_sides
+        and latest_direction == "UP"
+        and directions.count("UP") >= 2
+        and confirmation_direction == "UP"
+    ):
         return entry_if_price_ok(
             side="YES",
             prediction="UP",
             entry_price=yes_ask,
-            reason="5s candles up with 15s confirmation",
+            reason=scalp_entry_reason("5s up momentum", confirmation_direction),
             candles=recent_5s,
         )
 
-    if directions.count("DOWN") == 3 and confirmation_direction != "UP":
+    if (
+        "NO" in allowed_sides
+        and latest_direction == "DOWN"
+        and directions.count("DOWN") >= 2
+        and confirmation_direction == "DOWN"
+    ):
         return entry_if_price_ok(
             side="NO",
             prediction="DOWN",
             entry_price=no_ask,
-            reason="5s candles down with 15s confirmation",
+            reason=scalp_entry_reason("5s down momentum", confirmation_direction),
             candles=recent_5s,
         )
 
@@ -89,6 +108,9 @@ def choose_scalp_entry(candles_5s, candles_15s, *, yes_ask, no_ask, spread):
 
 
 def entry_if_price_ok(*, side, prediction, entry_price, reason, candles):
+    if candles[-1].direction == "FLAT":
+        return wait("latest candle flat")
+
     if not bodies_are_not_shrinking(candles):
         return wait("entry candle body shrinking")
 
@@ -103,6 +125,12 @@ def entry_if_price_ok(*, side, prediction, entry_price, reason, candles):
         "entry_price": entry_price,
         "reason": reason,
     }
+
+
+def scalp_entry_reason(momentum_reason, confirmation_direction):
+    if confirmation_direction in ("UP", "DOWN"):
+        return f"{momentum_reason}; 15s {confirmation_direction.lower()}"
+    return f"{momentum_reason}; 15s neutral"
 
 
 def wait(reason):
@@ -136,7 +164,7 @@ def choose_scalp_exit(
     yes_bid,
     no_bid,
     trailing_activation,
-    trailing_floor,
+    trailing_giveback,
     stop_loss,
 ):
     mark_price = mark_price_for_side(position["side"], yes_bid, no_bid)
@@ -146,8 +174,11 @@ def choose_scalp_exit(
     if profit <= -Decimal(str(stop_loss)):
         return exit_signal(mark_price, profit, peak_profit, "stop loss")
 
-    if peak_profit >= Decimal(str(trailing_activation)) and profit <= Decimal(str(trailing_floor)):
-        return exit_signal(mark_price, profit, peak_profit, "trailing profit floor")
+    if (
+        peak_profit >= Decimal(str(trailing_activation))
+        and profit <= peak_profit - Decimal(str(trailing_giveback))
+    ):
+        return exit_signal(mark_price, profit, peak_profit, "trailing giveback")
 
     if candles_shrinking(candles_5s):
         return exit_signal(mark_price, profit, peak_profit, "candle bodies shrinking")
