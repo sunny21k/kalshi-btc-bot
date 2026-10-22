@@ -35,6 +35,7 @@ type TradeStats = {
   losses: number;
   winRate: number | null;
   totalInvested: string;
+  totalTraded: string;
   profitLoss: string;
   roi: number | null;
   yes: SideStats;
@@ -112,6 +113,7 @@ const emptyTrade: TradeStats = {
   losses: 0,
   winRate: null,
   totalInvested: '0.0000',
+  totalTraded: '0.0000',
   profitLoss: '0.0000',
   roi: null,
   yes: { total: 0, settled: 0, winRate: null, profitLoss: '0.0000' },
@@ -157,6 +159,22 @@ function SideCard({ label, stats, icon }: { label: string; stats: SideStats; ico
   );
 }
 
+function TradedTotal({ value }: { value?: string }) {
+  const amount = value === undefined ? 'N/A' : Number(value).toLocaleString('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 4,
+  });
+
+  return (
+    <div className="row-border flex flex-wrap items-baseline justify-between gap-2 border-t px-3 py-2 text-sm">
+      <span className="muted-heading">Total Traded</span>
+      <span className="min-w-0 break-all font-semibold tabular-nums">{amount}</span>
+    </div>
+  );
+}
+
 function TradePanel({ title, stats, live }: { title: string; stats: TradeStats; live?: boolean }) {
   return (
     <section className="surface-panel border p-4">
@@ -173,6 +191,9 @@ function TradePanel({ title, stats, live }: { title: string; stats: TradeStats; 
         <Metric label="Win Rate" value={fmtPct(stats.winRate)} />
         <Metric label="P/L" value={`$${stats.profitLoss}`} tone={moneyClass(stats.profitLoss)} />
         <Metric label="ROI" value={fmtPct(stats.roi)} />
+      </div>
+      <div className="mt-2">
+        <TradedTotal value={stats.totalTraded} />
       </div>
       <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
         <SideCard label="YES" stats={stats.yes} icon={<TrendingUp size={16} />} />
@@ -491,6 +512,7 @@ function ScalpPanel({ stats }: { stats: ScalpStats }) {
         <Metric label="P/L" value={`$${stats.profitLoss}`} tone={moneyClass(stats.profitLoss)} />
         <Metric label="Peak P/L" value={`$${stats.peakProfit}`} tone={moneyClass(stats.peakProfit)} />
       </div>
+      <TradedTotal value={stats.totalInvested} />
     </section>
   );
 }

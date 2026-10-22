@@ -140,6 +140,7 @@ def trade_stats(rows, *, cost_field):
         )
     ]
     total_invested = sum(decimal_or_zero(row.get(cost_field)) for row in settled)
+    total_traded = sum(decimal_or_zero(row.get(cost_field)) for row in valid_rows)
     total_profit_loss = sum(decimal_or_zero(row.get("profit_loss")) for row in settled)
     return {
         "total": len(valid_rows),
@@ -149,6 +150,7 @@ def trade_stats(rows, *, cost_field):
         "losses": len(settled) - len(wins),
         "winRate": pct(len(wins), len(settled)),
         "totalInvested": money(total_invested),
+        "totalTraded": money(total_traded),
         "profitLoss": money(total_profit_loss),
         "roi": (
             float(total_profit_loss / total_invested * Decimal("100"))
