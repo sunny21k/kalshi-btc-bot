@@ -1,11 +1,14 @@
 import json
 import ssl
+import time
 import websocket
 
 
-def get_btc_price():
+def get_btc_price(*, timeout=10):
+    deadline = time.monotonic() + timeout
     ws = websocket.create_connection(
         "wss://ws-feed.exchange.coinbase.com",
+        timeout=timeout,
         sslopt={"cert_reqs": ssl.CERT_REQUIRED}
     )
 
@@ -15,15 +18,23 @@ def get_btc_price():
         "channels": ["ticker"]
     }
 
-    ws.send(json.dumps(subscribe))
+    try:
+        ws.send(json.dumps(subscribe))
 
-    while True:
-        message = json.loads(ws.recv())
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise websocket.WebSocketTimeoutException("Timed out waiting for BTC ticker")
+            ws.settimeout(remaining)
+            raw_message = ws.recv()
+            if not raw_message:
+                raise websocket.WebSocketConnectionClosedException("BTC feed closed before ticker arrived")
+            message = json.loads(raw_message)
 
-        if message.get("type") == "ticker":
-            price = float(message["price"])
-            ws.close()
-            return price
+            if message.get("type") == "ticker":
+                return float(message["price"])
+    finally:
+        ws.close()
 
 
 def main():

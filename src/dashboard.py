@@ -13,11 +13,15 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
 
+from live_execution import live_filled_count, live_fill_status
+from paper_execution import DUAL_TRADE_FILE, PAPER_TRADE_BUDGET
+
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT / "data"
 DASHBOARD_DIST = ROOT / "dashboard" / "dist"
 PAPER_FILE = DATA_DIR / "paper_trades.csv"
+DUAL_PAPER_FILE = ROOT / DUAL_TRADE_FILE
 LIVE_FILE = DATA_DIR / "live_trades.csv"
 SHADOW_FILE = DATA_DIR / "shadow_signals.csv"
 SCALP_FILE = DATA_DIR / "scalp_paper_trades.csv"
@@ -33,7 +37,20 @@ BOTS = {
         "mode": "paper",
         "description": (
             "Paper tests NO trades only on 15-minute BTC Kalshi markets using "
-            "the target-distance rules, momentum checks, and spread filter."
+            "the target-distance rules, momentum checks, and spread filter. "
+            f"Up to ${PAPER_TRADE_BUDGET:.0f} per trade in whole contracts, once per market."
+        ),
+        "env": {"KALSHI_LIVE_TRADING": "false"},
+    },
+    "btc15_dual_paper": {
+        "name": "15m YES/NO Paper Bot",
+        "script": "dual_paper_bot.py",
+        "mode": "paper",
+        "description": (
+            "Paper trades YES above the target or NO below it: $10 distance "
+            "within 4 minutes, or $50 within 5 minutes. "
+            f"Up to ${PAPER_TRADE_BUDGET:.0f} per trade, once per market, "
+            "with the existing price, momentum, and spread checks."
         ),
         "env": {"KALSHI_LIVE_TRADING": "false"},
     },
@@ -146,6 +163,22 @@ def trade_stats(rows, *, cost_field):
     }
 
 
+def live_trade_stats(rows):
+    trades = [
+        row for row in rows
+        if not row.get("error")
+        and row.get("side") in ("YES", "NO")
+        and (live_filled_count(row) or Decimal("0")) > 0
+    ]
+    stats = trade_stats(trades, cost_field="fill_cost")
+    stats["recent"] = [
+        {**row, "fill_status": live_fill_status(row)}
+        for row in reversed(rows[-20:])
+        if row.get("side") in ("YES", "NO")
+    ]
+    return stats
+
+
 def shadow_stats(rows):
     reasons = Counter(row.get("reason") or "unknown" for row in rows)
     decisions = Counter(row.get("decision") or "unknown" for row in rows)
@@ -194,7 +227,8 @@ def scalp_stats(rows):
 def build_payload():
     return {
         "paper": trade_stats(read_csv(PAPER_FILE), cost_field="cost"),
-        "live": trade_stats(read_csv(LIVE_FILE), cost_field="max_cost"),
+        "dualPaper": trade_stats(read_csv(DUAL_PAPER_FILE), cost_field="cost"),
+        "live": live_trade_stats(read_csv(LIVE_FILE)),
         "scalp": scalp_stats(read_csv(SCALP_FILE)),
         "shadow": shadow_stats(read_csv(SHADOW_FILE)),
         "bots": bot_statuses(),

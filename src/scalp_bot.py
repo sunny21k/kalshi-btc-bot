@@ -1,7 +1,11 @@
 import os
+import ssl
 import time
 from collections import defaultdict
 from decimal import Decimal
+
+from requests.exceptions import RequestException
+from websocket import WebSocketException
 
 from bot import get_current_market, get_seconds_remaining, get_yes_quote
 from btc_feed import get_btc_price
@@ -32,6 +36,7 @@ TRAILING_GIVEBACK = Decimal(
     )
 )
 STOP_LOSS = Decimal(os.getenv("SCALP_STOP_LOSS_DOLLARS", "0.03"))
+MAX_RETRY_SECONDS = 30
 
 
 def candle_bucket(timestamp, seconds):
@@ -76,21 +81,46 @@ def main():
     }
     position = None
     cooldown_until = Decimal("0")
+    retry_delay = 1
 
     while True:
         try:
+            try:
+                btc_price = Decimal(str(get_btc_price()))
+                market = get_current_market()
+                orderbook = get_orderbook(market["ticker"]) if market is not None else None
+            except (
+                RequestException,
+                WebSocketException,
+                ConnectionError,
+                TimeoutError,
+                ssl.SSLError,
+            ) as exc:
+                print(
+                    f"Market data error: {type(exc).__name__}: {exc} | "
+                    f"retrying in {retry_delay}s",
+                    flush=True,
+                )
+                # New entries need fresh candles after a data gap; keep the position.
+                for buckets in tick_store.values():
+                    buckets.clear()
+                time.sleep(retry_delay)
+                retry_delay = min(retry_delay * 2, MAX_RETRY_SECONDS)
+                continue
+
+            if retry_delay > 1:
+                print("Market data connection restored.", flush=True)
+            retry_delay = 1
+
             now = Decimal(str(time.time()))
-            btc_price = Decimal(str(get_btc_price()))
             append_tick(tick_store, now, btc_price)
 
-            market = get_current_market()
             if market is None:
                 print("No active market.")
                 time.sleep(float(POLL_SECONDS))
                 continue
 
             ticker = market["ticker"]
-            orderbook = get_orderbook(ticker)
             yes_bid, yes_ask, no_bid, no_ask, spread = get_yes_quote(orderbook, market)
             seconds_remaining = get_seconds_remaining(market)
             candles_5s = closed_candles(tick_store, now=now, seconds=5)

@@ -6,6 +6,8 @@ from decimal import Decimal
 
 
 TRADE_FILE = "data/paper_trades.csv"
+DUAL_TRADE_FILE = "data/dual_paper_trades.csv"
+PAPER_TRADE_BUDGET = Decimal("100")
 FIELDNAMES = [
     "timestamp",
     "trade_id",
@@ -25,14 +27,15 @@ FIELDNAMES = [
 ]
 
 
-def initialize_trade_file():
-    os.makedirs("data", exist_ok=True)
+def initialize_trade_file(trade_file=None):
+    trade_file = trade_file or TRADE_FILE
+    os.makedirs(os.path.dirname(trade_file) or ".", exist_ok=True)
 
-    if not os.path.exists(TRADE_FILE) or os.path.getsize(TRADE_FILE) == 0:
-        write_trade_rows([])
+    if not os.path.exists(trade_file) or os.path.getsize(trade_file) == 0:
+        write_trade_rows([], trade_file=trade_file)
         return
 
-    with open(TRADE_FILE, "r", newline="") as file:
+    with open(trade_file, "r", newline="") as file:
         reader = csv.DictReader(file)
         rows = list(reader)
 
@@ -40,11 +43,12 @@ def initialize_trade_file():
         return
 
     migrated_rows = [normalize_trade_row(row) for row in rows]
-    write_trade_rows(migrated_rows)
+    write_trade_rows(migrated_rows, trade_file=trade_file)
 
 
-def write_trade_rows(rows):
-    with open(TRADE_FILE, "w", newline="") as file:
+def write_trade_rows(rows, trade_file=None):
+    trade_file = trade_file or TRADE_FILE
+    with open(trade_file, "w", newline="") as file:
         writer = csv.DictWriter(file, fieldnames=FIELDNAMES)
         writer.writeheader()
         writer.writerows(rows)
@@ -123,10 +127,11 @@ def side_from_prediction(prediction):
     return ""
 
 
-def has_traded(ticker):
-    initialize_trade_file()
+def has_traded(ticker, trade_file=None):
+    trade_file = trade_file or TRADE_FILE
+    initialize_trade_file(trade_file=trade_file)
 
-    with open(TRADE_FILE, "r", newline="") as file:
+    with open(trade_file, "r", newline="") as file:
         reader = csv.DictReader(file)
 
         for row in reader:
@@ -134,6 +139,17 @@ def has_traded(ticker):
                 return True
 
     return False
+
+
+def contracts_for_budget(entry_price, budget=PAPER_TRADE_BUDGET):
+    entry_price = Decimal(str(entry_price))
+    budget = Decimal(str(budget))
+    if not entry_price.is_finite() or not Decimal("0") < entry_price <= Decimal("1"):
+        raise ValueError("paper entry price must be greater than $0 and at most $1")
+    if not budget.is_finite() or budget < entry_price:
+        raise ValueError("paper trade budget must cover at least one contract")
+
+    return int(budget // entry_price)
 
 
 def record_paper_trade(
@@ -146,10 +162,13 @@ def record_paper_trade(
     strategy_name="",
     seconds_remaining="",
     contracts=1,
+    *,
+    trade_file=None,
 ):
-    initialize_trade_file()
+    trade_file = trade_file or TRADE_FILE
+    initialize_trade_file(trade_file=trade_file)
 
-    if has_traded(ticker):
+    if has_traded(ticker, trade_file=trade_file):
         return False
 
     entry_price = Decimal(str(entry_price))
@@ -158,7 +177,7 @@ def record_paper_trade(
     contracts = int(contracts)
     cost = entry_price * contracts
 
-    with open(TRADE_FILE, "a", newline="") as file:
+    with open(trade_file, "a", newline="") as file:
         writer = csv.DictWriter(file, fieldnames=FIELDNAMES)
         writer.writerow({
             "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -185,10 +204,11 @@ def record_paper_trade(
     return True
 
 
-def update_paper_trade_results(get_market_result):
-    initialize_trade_file()
+def update_paper_trade_results(get_market_result, *, trade_file=None):
+    trade_file = trade_file or TRADE_FILE
+    initialize_trade_file(trade_file=trade_file)
 
-    with open(TRADE_FILE, "r", newline="") as file:
+    with open(trade_file, "r", newline="") as file:
         reader = csv.DictReader(file)
         rows = list(reader)
 
@@ -212,7 +232,7 @@ def update_paper_trade_results(get_market_result):
         updated_count += 1
 
     if updated_count:
-        write_trade_rows(rows)
+        write_trade_rows(rows, trade_file=trade_file)
 
     return updated_count
 

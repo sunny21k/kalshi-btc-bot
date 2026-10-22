@@ -38,7 +38,7 @@ class BotModeTests(unittest.TestCase):
                         place_live_trade=DEFAULT,
                     ) as mocks,
                     patch("bot.time.sleep", side_effect=[None, None, KeyboardInterrupt]),
-                    redirect_stdout(io.StringIO()),
+                    redirect_stdout(io.StringIO()) as output,
                 ):
                     mocks["get_btc_price"].side_effect = prices
                     mocks["get_current_market"].return_value = {
@@ -67,6 +67,10 @@ class BotModeTests(unittest.TestCase):
                         self.assertEqual(int(expected), mocks[name].call_count)
                         if expected:
                             self.assertEqual(side, mocks[name].call_args.kwargs["side"])
+                            self.assertEqual(1 if live_enabled else 125, mocks[name].call_args.kwargs["contracts"])
+                    if not blocked:
+                        self.assertIn(f"Bought {1 if live_enabled else 125} {side} @ $0.8000", output.getvalue())
+                        self.assertIn(f"Cost: ${'0.8000' if live_enabled else '100.0000'}", output.getvalue())
 
 
 if __name__ == "__main__":

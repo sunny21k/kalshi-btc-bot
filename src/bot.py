@@ -12,7 +12,12 @@ from strategy import (
 )
 from data_logger import log_market_data
 from live_execution import place_live_trade
-from paper_execution import record_paper_trade
+from paper_execution import (
+    PAPER_TRADE_BUDGET,
+    contracts_for_budget,
+    initialize_trade_file,
+    record_paper_trade,
+)
 from run_lock import RunLock
 from shadow_logger import log_shadow_signal
 
@@ -137,12 +142,25 @@ def get_yes_quote(orderbook, market=None):
     return yes_bid, yes_ask, no_bid, no_ask, spread
 
 
-def main():
+def main(
+    *,
+    live_enabled=None,
+    paper_sides=("NO",),
+    paper_trade_file=None,
+    enable_early_up=True,
+    bot_name="BTC 15M BOT",
+):
+    if live_enabled is None:
+        live_enabled = LIVE_TRADING_ENABLED
 
-    print("Starting BTC + Kalshi bot...")
-    print("Mode: LIVE MONEY" if LIVE_TRADING_ENABLED else "Mode: PAPER")
-    if not LIVE_TRADING_ENABLED:
-        print("Paper test: NO trades only")
+    print(f"Starting {bot_name}...")
+    print("Mode: LIVE MONEY" if live_enabled else "Mode: PAPER")
+    if not live_enabled:
+        print(f"Paper test: {'/'.join(paper_sides)} trades only")
+        print(f"Paper budget: ${PAPER_TRADE_BUDGET:.2f} per trade (whole contracts)")
+        if paper_trade_file is not None:
+            initialize_trade_file(trade_file=paper_trade_file)
+            print(f"Trade log: {paper_trade_file}")
 
     previous_btc_price = None
     recent_btc_prices = deque(maxlen=4)
@@ -232,12 +250,17 @@ def main():
                     if confirmation_key is not None
                     else 0
                 ),
+                enable_early_up=enable_early_up,
             )
-            if not LIVE_TRADING_ENABLED and trade_signal["decision"] == "BUY YES":
+            if (
+                not live_enabled
+                and trade_signal["decision"] in ("BUY YES", "BUY NO")
+                and trade_signal["side"] not in paper_sides
+            ):
                 trade_signal = {
                     **trade_signal,
                     "decision": "WAIT",
-                    "reason": "15m paper test is NO-only",
+                    "reason": f"15m paper test is {'/'.join(paper_sides)}-only",
                 }
             if decision_key := trade_signal.get("side"):
                 previous_entry_prices[(ticker, decision_key)] = (
@@ -246,7 +269,7 @@ def main():
 
             log_shadow_signal(
                 ticker=ticker,
-                live_enabled=LIVE_TRADING_ENABLED,
+                live_enabled=live_enabled,
                 trade_signal=trade_signal,
                 seconds_remaining=seconds_remaining,
             )
@@ -272,7 +295,7 @@ def main():
 
             print()
             print("=" * 60)
-            print("BTC 15M BOT")
+            print(bot_name)
             print("=" * 60)
 
             print(
@@ -370,8 +393,9 @@ def main():
                 if decision in ("BUY YES", "BUY NO"):
                     side = trade_signal["side"]
 
-                    if LIVE_TRADING_ENABLED:
+                    if live_enabled:
 
+                        contracts = 1
                         trade_recorded = place_live_trade(
                             ticker=ticker,
                             side=side,
@@ -385,6 +409,7 @@ def main():
 
                     else:
 
+                        contracts = contracts_for_budget(entry_price)
                         trade_recorded = record_paper_trade(
                             ticker=ticker,
                             side=side,
@@ -394,7 +419,8 @@ def main():
                             edge=edge,
                             strategy_name=trade_signal.get("strategy_name", ""),
                             seconds_remaining=seconds_remaining,
-                            contracts=1,
+                            contracts=contracts,
+                            trade_file=paper_trade_file,
                         )
 
                     if trade_recorded:
@@ -402,7 +428,7 @@ def main():
                         print()
                         print(
                             "LIVE TRADE SUBMITTED"
-                            if LIVE_TRADING_ENABLED
+                            if live_enabled
                             else "PAPER TRADE EXECUTED"
                         )
 
@@ -411,13 +437,13 @@ def main():
                         )
 
                         print(
-                            f"Bought 1 {side} @ "
+                            f"Bought {contracts} {side} @ "
                             f"${entry_price:.4f}"
                         )
 
                         print(
                             f"Cost: "
-                            f"${entry_price:.4f}"
+                            f"${entry_price * contracts:.4f}"
                         )
 
             else:

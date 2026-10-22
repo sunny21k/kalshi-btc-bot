@@ -94,6 +94,34 @@ def get_market(ticker):
     return request("GET", path)
 
 
+def get_order_fills(order_id, *, ticker):
+    fills = {}
+    for path in ("/trade-api/v2/portfolio/fills", "/trade-api/v2/historical/fills"):
+        cursor = ""
+        seen_cursors = set()
+        while True:
+            params = {"ticker": ticker, "limit": 200}
+            if path == "/trade-api/v2/portfolio/fills":
+                params["order_id"] = order_id
+            if cursor:
+                params["cursor"] = cursor
+            data = request("GET", path, params=params)
+            for fill in data["fills"]:
+                if fill.get("order_id") != order_id:
+                    continue
+                fill_id = fill.get("fill_id") or fill.get("trade_id")
+                if not fill_id:
+                    raise ValueError("Fill history is missing a fill ID")
+                fills[fill_id] = fill
+            cursor = data.get("cursor")
+            if not cursor:
+                break
+            if cursor in seen_cursors:
+                raise ValueError("Fill history returned a repeated pagination cursor")
+            seen_cursors.add(cursor)
+    return list(fills.values())
+
+
 def create_order(
     ticker,
     *,

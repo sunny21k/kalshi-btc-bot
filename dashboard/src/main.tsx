@@ -67,6 +67,7 @@ type ScalpStats = {
 
 type DashboardStats = {
   paper: TradeStats;
+  dualPaper: TradeStats;
   live: TradeStats;
   scalp: ScalpStats;
   shadow: ShadowStats;
@@ -101,7 +102,24 @@ const fmtDateTime = (value?: string) => {
 };
 const eventClass = (event?: string) => event === 'OPEN' ? 'event-open' : event === 'CLOSE' ? 'event-close' : 'muted-text';
 const eventRowClass = (event?: string) => event === 'OPEN' ? 'event-row-open' : event === 'CLOSE' ? 'event-row-close' : '';
-type TabId = 'btc15_paper' | 'btc15_live' | 'scalp_paper' | 'shadow';
+type TabId = 'btc15_paper' | 'btc15_dual_paper' | 'btc15_live' | 'scalp_paper' | 'shadow';
+
+const emptyTrade: TradeStats = {
+  total: 0,
+  settled: 0,
+  unsettled: 0,
+  wins: 0,
+  losses: 0,
+  winRate: null,
+  totalInvested: '0.0000',
+  profitLoss: '0.0000',
+  roi: null,
+  yes: { total: 0, settled: 0, winRate: null, profitLoss: '0.0000' },
+  no: { total: 0, settled: 0, winRate: null, profitLoss: '0.0000' },
+  byStrategy: {},
+  byTime: {},
+  recent: [],
+};
 
 const emptyScalp: ScalpStats = {
   total: 0,
@@ -194,7 +212,7 @@ function BucketTable({ title, buckets }: { title: string; buckets: BucketStats }
   );
 }
 
-function RecentTrades({ title, rows }: { title: string; rows: TradeRow[] }) {
+function RecentTrades({ title, rows, live }: { title: string; rows: TradeRow[]; live?: boolean }) {
   const items = rows ?? [];
 
   return (
@@ -203,7 +221,11 @@ function RecentTrades({ title, rows }: { title: string; rows: TradeRow[] }) {
       <div className="overflow-x-auto">
         <table className="w-full text-left text-sm">
           <thead className="muted-text text-xs">
-            <tr><th>ID</th><th>Made</th><th>Ticker</th><th>Side</th><th>Entry</th><th>Result</th><th>P/L</th><th>Strategy</th></tr>
+            <tr>
+              <th>ID</th><th>Made</th><th>Ticker</th><th>Side</th><th>Entry</th>
+              {live && <><th>Filled</th><th>Status</th><th>Fees</th></>}
+              <th>Result</th><th>{live ? 'Net P/L' : 'P/L'}</th><th>Strategy</th>
+            </tr>
           </thead>
           <tbody>
             {items.map((row, index) => (
@@ -213,14 +235,23 @@ function RecentTrades({ title, rows }: { title: string; rows: TradeRow[] }) {
                 <td className="max-w-[220px] truncate">{row.ticker}</td>
                 <td>{row.side}</td>
                 <td>{row.entry_price}</td>
+                {live && <>
+                  <td className="whitespace-nowrap">{row.filled_count || '?'} / {row.submitted_count || row.contracts}</td>
+                  <td className="whitespace-nowrap" title={row.sync_error || row.error}>
+                    {row.fill_status === 'UNKNOWN' ? 'Unverified' : row.fill_status}
+                  </td>
+                  <td>{row.fees_paid !== undefined && row.fees_paid !== '' ? `$${row.fees_paid}` : ''}</td>
+                </>}
                 <td>{row.actual_result}</td>
-                <td className={moneyClass(row.profit_loss)}>{row.profit_loss}</td>
+                <td className={row.profit_loss ? moneyClass(row.profit_loss) : 'muted-text'}>
+                  {row.profit_loss || (live ? (row.fill_status === 'UNFILLED' ? 'No fill' : row.fill_status === 'REJECTED' ? '' : 'Pending') : '')}
+                </td>
                 <td>{row.strategy_name}</td>
               </tr>
             ))}
             {!items.length && (
               <tr className="row-border border-t">
-                <td className="muted-text py-3" colSpan={8}>No trades yet</td>
+                <td className="muted-text py-3" colSpan={live ? 11 : 8}>No trades yet</td>
               </tr>
             )}
           </tbody>
@@ -367,7 +398,8 @@ function SingleBotControl({ bot, onAction }: { bot?: BotStatus; onAction: (botId
 function BotTabs({ active, onChange, data }: { active: TabId; onChange: (tab: TabId) => void; data: DashboardStats }) {
   const botById = Object.fromEntries((data.bots ?? []).map((bot) => [bot.id, bot]));
   const tabs: Array<{ id: TabId; label: string; detail: string; running?: boolean }> = [
-    { id: 'btc15_paper', label: '15m Paper', detail: `${data.paper.total} trades`, running: botById.btc15_paper?.running },
+    { id: 'btc15_paper', label: '15m NO Only', detail: `${data.paper.total} trades`, running: botById.btc15_paper?.running },
+    { id: 'btc15_dual_paper', label: '15m YES / NO', detail: `${data.dualPaper.total} trades`, running: botById.btc15_dual_paper?.running },
     { id: 'btc15_live', label: '15m Live', detail: `${data.live.total} trades`, running: botById.btc15_live?.running },
     { id: 'scalp_paper', label: 'Scalp Paper', detail: `${data.scalp.total} entries`, running: botById.scalp_paper?.running },
     { id: 'shadow', label: 'Blocked Signals', detail: `${data.shadow.total} logged` },
@@ -540,17 +572,17 @@ function ShadowTrades({ rows }: { rows: TradeRow[] }) {
 function BotWorkspace({ active, data, onAction }: { active: TabId; data: DashboardStats; onAction: (botId: string, action: 'start' | 'stop') => void }) {
   const botById = Object.fromEntries((data.bots ?? []).map((bot) => [bot.id, bot]));
 
-  if (active === 'btc15_paper') {
+  if (active === 'btc15_paper' || active === 'btc15_dual_paper') {
+    const stats = active === 'btc15_dual_paper' ? data.dualPaper : data.paper;
     return (
       <div className="grid gap-3 2xl:grid-cols-[300px_1fr]">
         <div className="grid content-start gap-3">
-          <SingleBotControl bot={botById.btc15_paper} onAction={onAction} />
-          <BucketTable title="Paper by Strategy" buckets={data.paper.byStrategy} />
-          <BucketTable title="Paper by Time" buckets={data.paper.byTime} />
+          <SingleBotControl bot={botById[active]} onAction={onAction} />
+          <BucketTable title="Paper by Strategy" buckets={stats.byStrategy} />
         </div>
         <div className="grid content-start gap-3">
-          <TradePanel title="15m Paper Trading" stats={data.paper} />
-          <RecentTrades title="Recent Paper Trades" rows={data.paper.recent} />
+          <TradePanel title={active === 'btc15_dual_paper' ? '15m YES/NO Paper Trading' : '15m Paper Trading'} stats={stats} />
+          <RecentTrades title="Recent Paper Trades" rows={stats.recent} />
         </div>
       </div>
     );
@@ -567,7 +599,7 @@ function BotWorkspace({ active, data, onAction }: { active: TabId; data: Dashboa
         </div>
         <div className="grid content-start gap-3">
           <TradePanel title="15m Live Trading" stats={data.live} live />
-          <RecentTrades title="Recent Live Trades" rows={data.live.recent} />
+          <RecentTrades title="Recent Live Orders" rows={data.live.recent} live />
         </div>
       </div>
     );
@@ -611,6 +643,7 @@ function App() {
     setData({
       ...payload,
       bots: payload.bots ?? [],
+      dualPaper: payload.dualPaper ?? emptyTrade,
       scalp: payload.scalp ?? emptyScalp,
     });
     setUpdated(new Date().toLocaleTimeString());

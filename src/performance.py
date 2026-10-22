@@ -2,8 +2,9 @@ import csv
 import os
 from decimal import Decimal
 
-from live_execution import LIVE_TRADE_FILE
+from live_execution import LIVE_TRADE_FILE, live_filled_count
 from outcome_tracker import prediction_was_correct
+from paper_execution import DUAL_TRADE_FILE
 
 
 DATA_FILE = "data/market_data.csv"
@@ -131,6 +132,11 @@ def print_trade_performance(
         for row in reader:
             if row.get("error"):
                 continue
+            if cost_field == "max_cost" and (
+                row.get("side") not in ("YES", "NO")
+                or (live_filled_count(row) or Decimal("0")) <= 0
+            ):
+                continue
 
             total_trades += 1
             side = row.get("side", "")
@@ -168,7 +174,9 @@ def print_trade_performance(
                 continue
 
             settled_trades += 1
-            if row.get("filled_count") not in (None, ""):
+            if cost_field == "max_cost":
+                cost = decimal_or_zero(row.get("fill_cost"))
+            elif row.get("filled_count") not in (None, ""):
                 cost = entry_price * decimal_or_zero(row.get("filled_count"))
             else:
                 cost = decimal_or_zero(row.get(cost_field))
@@ -261,6 +269,17 @@ def print_paper_trade_performance():
         title="PAPER TRADING PERFORMANCE",
         total_label="Total Paper Trades",
         no_trades_message="No paper trades found.",
+        cost_field="cost",
+        include_edge=True,
+    )
+
+
+def print_dual_paper_trade_performance():
+    print_trade_performance(
+        file_path=DUAL_TRADE_FILE,
+        title="YES/NO PAPER TRADING PERFORMANCE",
+        total_label="Total YES/NO Paper Trades",
+        no_trades_message="No YES/NO paper trades found.",
         cost_field="cost",
         include_edge=True,
     )
@@ -378,6 +397,7 @@ def print_prediction_performance():
 
 def main():
     print_paper_trade_performance()
+    print_dual_paper_trade_performance()
     print_live_trade_performance()
     print_prediction_performance()
 

@@ -5,7 +5,7 @@ MIN_LATE_ENTRY_PRICE = Decimal("0.75")
 MAX_LATE_ENTRY_PRICE = Decimal("0.92")
 MAX_LATE_ENTRY_SECONDS = Decimal("240")
 MIN_BTC_PRICE_DIFFERENCE = Decimal("10")
-MAX_STRONG_ENTRY_SECONDS = Decimal("360")
+MAX_STRONG_ENTRY_SECONDS = Decimal("300")
 MIN_STRONG_BTC_PRICE_DIFFERENCE = Decimal("50")
 MAX_EARLY_UP_ENTRY_SECONDS = Decimal("540")
 MIN_EARLY_UP_PRICE_DIFFERENCE = Decimal("70")
@@ -129,6 +129,7 @@ def make_late_momentum_decision(
     recent_prices=None,
     previous_entry_price=None,
     confirmation_count=0,
+    enable_early_up=True,
 ):
     if target_price in (None, ""):
         return {
@@ -176,7 +177,8 @@ def make_late_momentum_decision(
     price_difference = btc_price - target_price
 
     early_up_rule_passed = (
-        seconds_remaining <= MAX_EARLY_UP_ENTRY_SECONDS
+        enable_early_up
+        and seconds_remaining <= MAX_EARLY_UP_ENTRY_SECONDS
         and price_difference >= MIN_EARLY_UP_PRICE_DIFFERENCE
     )
     strong_rule_passed = (
@@ -189,12 +191,14 @@ def make_late_momentum_decision(
     )
 
     if not early_up_rule_passed and not strong_rule_passed and not late_rule_passed:
-        if seconds_remaining > MAX_EARLY_UP_ENTRY_SECONDS:
+        if not enable_early_up and seconds_remaining > MAX_STRONG_ENTRY_SECONDS:
+            reason = "more than 5 minutes left"
+        elif seconds_remaining > MAX_EARLY_UP_ENTRY_SECONDS:
             reason = "more than 9 minutes left"
         elif price_difference >= 0 and seconds_remaining > MAX_STRONG_ENTRY_SECONDS:
             reason = "BTC is less than $70 above target"
         elif seconds_remaining > MAX_STRONG_ENTRY_SECONDS:
-            reason = "more than 6 minutes left"
+            reason = "more than 5 minutes left"
         elif seconds_remaining > MAX_LATE_ENTRY_SECONDS:
             reason = "BTC is less than $50 from target"
         else:
@@ -222,7 +226,7 @@ def make_late_momentum_decision(
         "early_up_9m_70"
         if early_up_rule_passed
         else (
-            "strong_6m_50"
+            "strong_5m_50"
             if strong_rule_passed
             else "late_4m_10"
         )
@@ -313,7 +317,7 @@ def make_late_momentum_decision(
             "early 9-minute $70 up rule passed"
             if early_up_rule_passed
             else (
-                "strong 6-minute $50 rule passed"
+                "strong 5-minute $50 rule passed"
                 if strong_rule_passed
                 else "late 4-minute $10 rule passed"
             )

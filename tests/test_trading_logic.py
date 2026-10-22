@@ -35,6 +35,43 @@ class PaperExecutionTests(unittest.TestCase):
         with open(paper_execution.TRADE_FILE, "r", newline="") as file:
             return list(csv.DictReader(file))
 
+    def test_paper_budget_rounds_down_to_whole_contracts_without_exceeding_100(self):
+        for price, expected in (("0.80", 125), ("0.83", 120), ("0.75", 133), ("0.92", 108), ("0.005", 20000), ("1.00", 100)):
+            with self.subTest(price=price):
+                contracts = paper_execution.contracts_for_budget(price)
+                self.assertEqual(expected, contracts)
+                cost = Decimal(price) * contracts
+                self.assertLessEqual(cost, Decimal("100"))
+                self.assertGreater(cost + Decimal(price), Decimal("100"))
+
+    def test_paper_budget_rejects_invalid_prices_and_insufficient_budgets(self):
+        for price in ("0", "-0.01", "1.01", "NaN", "Infinity"):
+            with self.subTest(price=price), self.assertRaises(ValueError):
+                paper_execution.contracts_for_budget(price)
+        for budget in ("0", "-1", "0.79", "NaN", "Infinity"):
+            with self.subTest(budget=budget), self.assertRaises(ValueError):
+                paper_execution.contracts_for_budget("0.80", budget=budget)
+
+    def test_budget_sized_trades_log_and_settle_the_full_contract_quantity(self):
+        for side, result in (("YES", "YES"), ("NO", "NO"), ("NO", "YES")):
+            ticker = f"{side}-{result}"
+            paper_execution.record_paper_trade(
+                ticker=ticker,
+                side=side,
+                prediction="UP" if side == "YES" else "DOWN",
+                entry_price="0.80",
+                model_probability="0.80",
+                edge="0",
+                contracts=paper_execution.contracts_for_budget("0.80"),
+            )
+        results = {"YES-YES": "YES", "NO-NO": "NO", "NO-YES": "YES"}
+        self.assertEqual(3, paper_execution.update_paper_trade_results(results.get))
+        rows = {row["ticker"]: row for row in self.read_rows()}
+        for ticker, profit in (("YES-YES", "25.0000"), ("NO-NO", "25.0000"), ("NO-YES", "-100.0000")):
+            self.assertEqual("125", rows[ticker]["contracts"])
+            self.assertEqual("100.0000", rows[ticker]["cost"])
+            self.assertEqual(profit, rows[ticker]["profit_loss"])
+
     def test_record_paper_trade_uses_canonical_schema_and_prevents_duplicates(self):
         recorded = paper_execution.record_paper_trade(
             ticker="KXBTC15M-TEST",
@@ -300,7 +337,15 @@ class LiveExecutionTests(unittest.TestCase):
         ])
 
         updated = live_execution.update_live_trade_results(
-            lambda ticker: {"LIVE-YES": "YES", "LIVE-NO": "YES"}.get(ticker)
+            lambda ticker: {"LIVE-YES": "YES", "LIVE-NO": "YES"}.get(ticker),
+            get_fills_fn=lambda order_id, *, ticker: [{
+                "order_id": order_id,
+                "ticker": ticker,
+                "count_fp": "1.00",
+                "yes_price_dollars": "0.8000" if order_id == "o1" else "0.1800",
+                "no_price_dollars": "0.2000" if order_id == "o1" else "0.8200",
+                "fee_cost": "0.0000",
+            }],
         )
 
         rows = {row["ticker"]: row for row in self.read_rows()}
@@ -469,11 +514,11 @@ class StrategyTests(unittest.TestCase):
         self.assertEqual("DOWN", result["prediction"])
         self.assertEqual(Decimal("0.82"), result["entry_price"])
 
-    def test_late_momentum_buys_with_strong_six_minute_rule(self):
+    def test_late_momentum_buys_with_strong_five_minute_rule(self):
         result = make_late_momentum_decision(
             btc_price=Decimal("82380"),
             target_price=Decimal("82323.36"),
-            seconds_remaining=Decimal("350"),
+            seconds_remaining=Decimal("290"),
             yes_ask=Decimal("0.84"),
             no_ask=Decimal("0.16"),
             spread=Decimal("0.02"),
@@ -486,7 +531,43 @@ class StrategyTests(unittest.TestCase):
         )
 
         self.assertEqual("BUY YES", result["decision"])
-        self.assertEqual("strong 6-minute $50 rule passed", result["reason"])
+        self.assertEqual("strong_5m_50", result["strategy_name"])
+        self.assertEqual("strong 5-minute $50 rule passed", result["reason"])
+
+    def test_strong_rule_uses_five_minute_boundary_for_both_sides(self):
+        for side, direction in (("YES", 1), ("NO", -1)):
+            for seconds, allowed in (("300", True), ("300.001", False), ("350", False), ("240", True)):
+                with self.subTest(side=side, seconds=seconds):
+                    result = make_late_momentum_decision(
+                        btc_price=Decimal("100000") + direction * Decimal("50"),
+                        target_price=Decimal("100000"),
+                        seconds_remaining=Decimal(seconds),
+                        yes_ask=Decimal("0.84") if side == "YES" else Decimal("0.18"),
+                        no_ask=Decimal("0.84") if side == "NO" else Decimal("0.18"),
+                        spread=Decimal("0.02"),
+                        recent_prices=[
+                            Decimal("100000") + direction * Decimal(distance)
+                            for distance in ("40", "45", "50")
+                        ],
+                        confirmation_count=3,
+                    )
+                    self.assertEqual(f"BUY {side}" if allowed else "WAIT", result["decision"])
+                    if allowed:
+                        self.assertEqual("strong_5m_50", result["strategy_name"])
+
+    def test_strong_five_minute_rule_still_requires_fifty_dollar_difference(self):
+        for direction in (1, -1):
+            with self.subTest(direction=direction):
+                result = make_late_momentum_decision(
+                    btc_price=Decimal("100000") + direction * Decimal("49.99"),
+                    target_price=Decimal("100000"),
+                    seconds_remaining=Decimal("270"),
+                    yes_ask=Decimal("0.80"),
+                    no_ask=Decimal("0.80"),
+                    confirmation_count=3,
+                )
+                self.assertEqual("WAIT", result["decision"])
+                self.assertEqual("BTC is less than $50 from target", result["reason"])
 
     def test_late_momentum_buys_yes_with_early_nine_minute_rule(self):
         result = make_late_momentum_decision(
