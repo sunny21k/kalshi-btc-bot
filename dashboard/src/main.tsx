@@ -70,6 +70,7 @@ type DashboardStats = {
   paper: TradeStats;
   dualPaper: TradeStats;
   live: TradeStats;
+  dualLive: TradeStats;
   scalp: ScalpStats;
   shadow: ShadowStats;
   bots: BotStatus[];
@@ -84,7 +85,11 @@ type BotStatus = {
   pid: number | null;
   returnCode: number | null;
   logFile: string;
+  supportsTradeBudget?: boolean;
+  tradeBudget?: string | null;
 };
+
+type BotAction = (botId: string, action: 'start' | 'stop', tradeBudget?: string) => void;
 
 const moneyClass = (value: string) => Number(value || 0) >= 0 ? 'money-positive' : 'money-negative';
 const fmtPct = (value: number | null) => value === null ? 'N/A' : `${value.toFixed(2)}%`;
@@ -103,7 +108,7 @@ const fmtDateTime = (value?: string) => {
 };
 const eventClass = (event?: string) => event === 'OPEN' ? 'event-open' : event === 'CLOSE' ? 'event-close' : 'muted-text';
 const eventRowClass = (event?: string) => event === 'OPEN' ? 'event-row-open' : event === 'CLOSE' ? 'event-row-close' : '';
-type TabId = 'btc15_paper' | 'btc15_dual_paper' | 'btc15_live' | 'scalp_paper' | 'shadow';
+type TabId = 'btc15_paper' | 'btc15_dual_paper' | 'btc15_live' | 'btc15_dual_live' | 'scalp_paper' | 'shadow';
 
 const emptyTrade: TradeStats = {
   total: 0,
@@ -363,7 +368,13 @@ function BotControls({ bots, onAction }: { bots?: BotStatus[]; onAction: (botId:
   );
 }
 
-function SingleBotControl({ bot, onAction }: { bot?: BotStatus; onAction: (botId: string, action: 'start' | 'stop') => void }) {
+function SingleBotControl({ bot, onAction }: { bot?: BotStatus; onAction: BotAction }) {
+  const [budget, setBudget] = React.useState(bot?.tradeBudget ?? '1.00');
+
+  React.useEffect(() => {
+    setBudget(bot?.tradeBudget ?? '1.00');
+  }, [bot?.id, bot?.running, bot?.tradeBudget]);
+
   if (!bot) {
     return (
       <section className="surface-card border p-4">
@@ -387,6 +398,22 @@ function SingleBotControl({ bot, onAction }: { bot?: BotStatus; onAction: (botId
         </span>
       </div>
       <p className="muted-heading text-sm leading-6">{bot.description}</p>
+      {bot.supportsTradeBudget && (
+        <div className="mt-3">
+          <label htmlFor={`${bot.id}-budget`} className="muted-heading text-xs font-medium">Entry budget ($, before fees)</label>
+          <input
+            id={`${bot.id}-budget`}
+            type="number"
+            inputMode="decimal"
+            min="0.01"
+            step="0.01"
+            value={budget}
+            onChange={(event) => setBudget(event.target.value)}
+            disabled={bot.running}
+            className="surface-soft mt-1 w-full min-w-0 border px-3 py-2 text-sm tabular-nums disabled:opacity-70"
+          />
+        </div>
+      )}
       <div className="surface-soft mt-4 border px-3 py-2 text-xs">
         <div className="muted-text">Log file</div>
         <div className="mt-1 truncate font-medium">{bot.logFile}</div>
@@ -401,7 +428,7 @@ function SingleBotControl({ bot, onAction }: { bot?: BotStatus; onAction: (botId
           </button>
         ) : (
           <button
-            onClick={() => onAction(bot.id, 'start')}
+            onClick={() => onAction(bot.id, 'start', bot.supportsTradeBudget ? budget : undefined)}
             className={`inline-flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium ${
               bot.mode === 'live'
                 ? 'bg-red-700 text-white hover:bg-red-800'
@@ -422,6 +449,7 @@ function BotTabs({ active, onChange, data }: { active: TabId; onChange: (tab: Ta
     { id: 'btc15_paper', label: '15m NO Only', detail: `${data.paper.total} trades`, running: botById.btc15_paper?.running },
     { id: 'btc15_dual_paper', label: '15m YES / NO', detail: `${data.dualPaper.total} trades`, running: botById.btc15_dual_paper?.running },
     { id: 'btc15_live', label: '15m Live', detail: `${data.live.total} trades`, running: botById.btc15_live?.running },
+    { id: 'btc15_dual_live', label: 'YES / NO Live', detail: `${data.dualLive.total} trades`, running: botById.btc15_dual_live?.running },
     { id: 'scalp_paper', label: 'Scalp Paper', detail: `${data.scalp.total} entries`, running: botById.scalp_paper?.running },
     { id: 'shadow', label: 'Blocked Signals', detail: `${data.shadow.total} logged` },
   ];
@@ -468,8 +496,7 @@ function RiskNotes() {
         <CircleDollarSign size={16} /> Risk Notes
       </div>
       <div className="grid gap-2 text-sm">
-        <div className="surface-soft border px-3 py-2">Live mode max: 1 contract per trade</div>
-        <div className="surface-soft border px-3 py-2">Daily live trade cap: 30</div>
+        <div className="surface-soft border px-3 py-2">Shared daily live order cap: 30</div>
         <div className="surface-soft border px-3 py-2">Daily loss stop: <code>KALSHI_MAX_DAILY_LIVE_LOSS</code></div>
       </div>
     </section>
@@ -591,7 +618,7 @@ function ShadowTrades({ rows }: { rows: TradeRow[] }) {
   );
 }
 
-function BotWorkspace({ active, data, onAction }: { active: TabId; data: DashboardStats; onAction: (botId: string, action: 'start' | 'stop') => void }) {
+function BotWorkspace({ active, data, onAction }: { active: TabId; data: DashboardStats; onAction: BotAction }) {
   const botById = Object.fromEntries((data.bots ?? []).map((bot) => [bot.id, bot]));
 
   if (active === 'btc15_paper' || active === 'btc15_dual_paper') {
@@ -599,7 +626,7 @@ function BotWorkspace({ active, data, onAction }: { active: TabId; data: Dashboa
     return (
       <div className="grid gap-3 2xl:grid-cols-[300px_1fr]">
         <div className="grid content-start gap-3">
-          <SingleBotControl bot={botById[active]} onAction={onAction} />
+          <SingleBotControl key={active} bot={botById[active]} onAction={onAction} />
           <BucketTable title="Paper by Strategy" buckets={stats.byStrategy} />
         </div>
         <div className="grid content-start gap-3">
@@ -610,19 +637,22 @@ function BotWorkspace({ active, data, onAction }: { active: TabId; data: Dashboa
     );
   }
 
-  if (active === 'btc15_live') {
+  if (active === 'btc15_live' || active === 'btc15_dual_live') {
+    const stats = active === 'btc15_dual_live' ? data.dualLive : data.live;
     return (
-      <div className="grid gap-3 2xl:grid-cols-[300px_1fr]">
-        <div className="grid content-start gap-3">
-          <SingleBotControl bot={botById.btc15_live} onAction={onAction} />
-          <RiskNotes />
-          <BucketTable title="Live by Strategy" buckets={data.live.byStrategy} />
-          <BucketTable title="Live by Time" buckets={data.live.byTime} />
+      <div className="grid gap-3">
+        <div className="grid items-start gap-3 2xl:grid-cols-[300px_1fr]">
+          <SingleBotControl key={active} bot={botById[active]} onAction={onAction} />
+          <div className="grid content-start gap-3">
+            <TradePanel title={active === 'btc15_dual_live' ? '15m YES/NO Live Trading' : '15m Live Trading'} stats={stats} live />
+            <RecentTrades title="Recent Live Orders" rows={stats.recent} live />
+          </div>
         </div>
-        <div className="grid content-start gap-3">
-          <TradePanel title="15m Live Trading" stats={data.live} live />
-          <RecentTrades title="Recent Live Orders" rows={data.live.recent} live />
+        <div className="grid items-start gap-3 lg:grid-cols-2">
+          <BucketTable title="Live by Strategy" buckets={stats.byStrategy} />
+          <BucketTable title="Live by Time" buckets={stats.byTime} />
         </div>
+        <RiskNotes />
       </div>
     );
   }
@@ -658,6 +688,7 @@ function App() {
   const [updated, setUpdated] = React.useState('');
   const [theme, setTheme] = React.useState(() => localStorage.getItem('dashboard-theme') ?? 'dark');
   const [activeTab, setActiveTab] = React.useState<TabId>('btc15_paper');
+  const [actionError, setActionError] = React.useState('');
 
   const load = React.useCallback(async () => {
     const response = await fetch('/api/stats');
@@ -666,19 +697,40 @@ function App() {
       ...payload,
       bots: payload.bots ?? [],
       dualPaper: payload.dualPaper ?? emptyTrade,
+      dualLive: payload.dualLive ?? emptyTrade,
       scalp: payload.scalp ?? emptyScalp,
     });
     setUpdated(new Date().toLocaleTimeString());
   }, []);
 
-  const botAction = React.useCallback(async (botId: string, action: 'start' | 'stop') => {
-    await fetch(`/api/bots/${action}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ botId }),
-    });
-    await load();
-  }, [load]);
+  const botAction = React.useCallback(async (botId: string, action: 'start' | 'stop', tradeBudget?: string) => {
+    const selectedBot = data?.bots.find((bot) => bot.id === botId);
+    setActionError('');
+    if (action === 'start' && selectedBot?.supportsTradeBudget) {
+      const value = tradeBudget?.trim() ?? '';
+      if (!/^(?:\d+(?:\.\d{0,2})?|\.\d{1,2})$/.test(value) || !/[1-9]/.test(value)) {
+        setActionError('Enter a positive dollar budget with at most two decimal places.');
+        return;
+      }
+    }
+    const budgetLabel = `$${tradeBudget?.trim() ?? selectedBot?.tradeBudget ?? '1.00'}`;
+    if (action === 'start' && selectedBot?.mode === 'live' && !window.confirm(
+      `Start ${selectedBot.name} with REAL MONEY? Up to ${budgetLabel} entry cost PER TRADE, plus exchange fees. Whole contracts; up to 30 live order attempts per UTC day.`,
+    )) return;
+
+    try {
+      const response = await fetch(`/api/bots/${action}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ botId, ...(action === 'start' && tradeBudget !== undefined ? { tradeBudget } : {}) }),
+      });
+      const result = await response.json() as { message?: string; error?: string };
+      if (!response.ok) throw new Error(result.message || result.error || 'Bot action failed');
+      await load();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Bot action failed');
+    }
+  }, [data, load]);
 
   React.useEffect(() => {
     void load();
@@ -730,6 +782,11 @@ function App() {
       <main className="dashboard-frame mx-auto max-w-[1180px]">
         <BotTabs active={activeTab} onChange={setActiveTab} data={data} />
         <section className="dashboard-content">
+          {actionError && (
+            <div role="alert" className="money-negative flex items-center gap-2 text-sm">
+              <AlertTriangle size={16} className="shrink-0" /> {actionError}
+            </div>
+          )}
           <BotWorkspace active={activeTab} data={data} onAction={botAction} />
           <div className="muted-text flex items-center gap-2 pb-4 pt-2 text-xs">
             <Activity size={14} /> Auto-refreshes every 5 seconds.

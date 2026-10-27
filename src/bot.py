@@ -11,7 +11,12 @@ from strategy import (
     make_late_momentum_decision,
 )
 from data_logger import log_market_data
-from live_execution import place_live_trade
+from live_execution import (
+    DEFAULT_LIVE_TRADE_BUDGET,
+    LEGACY_LIVE_BOT_ID,
+    normalize_live_entry_price,
+    place_live_trade,
+)
 from paper_execution import (
     PAPER_TRADE_BUDGET,
     contracts_for_budget,
@@ -20,6 +25,10 @@ from paper_execution import (
 )
 from run_lock import RunLock
 from shadow_logger import log_shadow_signal
+from trade_sizing import (
+    contracts_for_budget as live_contracts_for_budget,
+    parse_trade_budget,
+)
 
 
 SERIES = "KXBTC15M"
@@ -147,17 +156,26 @@ def main(
     live_enabled=None,
     paper_sides=("NO",),
     paper_trade_file=None,
+    live_bot_id=LEGACY_LIVE_BOT_ID,
     enable_early_up=True,
     bot_name="BTC 15M BOT",
+    trade_budget=None,
 ):
     if live_enabled is None:
         live_enabled = LIVE_TRADING_ENABLED
 
+    if trade_budget is None:
+        trade_budget = os.getenv(
+            "KALSHI_LIVE_TRADE_BUDGET" if live_enabled else "KALSHI_PAPER_TRADE_BUDGET",
+            str(DEFAULT_LIVE_TRADE_BUDGET if live_enabled else PAPER_TRADE_BUDGET),
+        )
+    trade_budget = parse_trade_budget(trade_budget)
+
     print(f"Starting {bot_name}...")
     print("Mode: LIVE MONEY" if live_enabled else "Mode: PAPER")
+    print(f"Entry budget: ${trade_budget:.2f} per trade, before fees (whole contracts)")
     if not live_enabled:
         print(f"Paper test: {'/'.join(paper_sides)} trades only")
-        print(f"Paper budget: ${PAPER_TRADE_BUDGET:.2f} per trade (whole contracts)")
         if paper_trade_file is not None:
             initialize_trade_file(trade_file=paper_trade_file)
             print(f"Trade log: {paper_trade_file}")
@@ -395,7 +413,8 @@ def main(
 
                     if live_enabled:
 
-                        contracts = 1
+                        entry_price = normalize_live_entry_price(entry_price)
+                        contracts = live_contracts_for_budget(entry_price, trade_budget)
                         trade_recorded = place_live_trade(
                             ticker=ticker,
                             side=side,
@@ -403,13 +422,15 @@ def main(
                             entry_price=entry_price,
                             strategy_name=trade_signal.get("strategy_name", ""),
                             seconds_remaining=seconds_remaining,
-                            contracts=1,
+                            contracts=contracts,
                             exchange_index=market.get("exchange_index"),
+                            bot_id=live_bot_id,
+                            trade_budget=trade_budget,
                         )
 
                     else:
 
-                        contracts = contracts_for_budget(entry_price)
+                        contracts = contracts_for_budget(entry_price, budget=trade_budget)
                         trade_recorded = record_paper_trade(
                             ticker=ticker,
                             side=side,

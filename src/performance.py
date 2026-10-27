@@ -2,7 +2,12 @@ import csv
 import os
 from decimal import Decimal
 
-from live_execution import LIVE_TRADE_FILE, live_filled_count
+from live_execution import (
+    DUAL_LIVE_BOT_ID,
+    LEGACY_LIVE_BOT_ID,
+    LIVE_TRADE_FILE,
+    live_filled_count,
+)
 from outcome_tracker import prediction_was_correct
 from paper_execution import DUAL_TRADE_FILE
 
@@ -99,6 +104,7 @@ def print_trade_performance(
     no_trades_message,
     cost_field,
     include_edge,
+    bot_id=None,
 ):
     if not os.path.exists(file_path):
         print(no_trades_message)
@@ -130,6 +136,8 @@ def print_trade_performance(
         reader = csv.DictReader(file)
 
         for row in reader:
+            if bot_id is not None and (row.get("bot_id") or LEGACY_LIVE_BOT_ID) != bot_id:
+                continue
             if row.get("error"):
                 continue
             if cost_field == "max_cost" and (
@@ -293,6 +301,19 @@ def print_live_trade_performance():
         no_trades_message="No live trades found.",
         cost_field="max_cost",
         include_edge=False,
+        bot_id=LEGACY_LIVE_BOT_ID,
+    )
+
+
+def print_dual_live_trade_performance():
+    print_trade_performance(
+        file_path=LIVE_TRADE_FILE,
+        title="YES/NO LIVE TRADING PERFORMANCE",
+        total_label="Total YES/NO Live Trades",
+        no_trades_message="No YES/NO live trades found.",
+        cost_field="max_cost",
+        include_edge=False,
+        bot_id=DUAL_LIVE_BOT_ID,
     )
 
 
@@ -399,6 +420,7 @@ def main():
     print_paper_trade_performance()
     print_dual_paper_trade_performance()
     print_live_trade_performance()
+    print_dual_live_trade_performance()
     print_prediction_performance()
 
 

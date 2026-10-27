@@ -13,8 +13,15 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
 
-from live_execution import live_filled_count, live_fill_status
+from live_execution import (
+    DUAL_LIVE_BOT_ID,
+    DEFAULT_LIVE_TRADE_BUDGET,
+    LEGACY_LIVE_BOT_ID,
+    live_filled_count,
+    live_fill_status,
+)
 from paper_execution import DUAL_TRADE_FILE, PAPER_TRADE_BUDGET
+from trade_sizing import parse_trade_budget
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -27,6 +34,7 @@ SHADOW_FILE = DATA_DIR / "shadow_signals.csv"
 SCALP_FILE = DATA_DIR / "scalp_paper_trades.csv"
 LOG_DIR = DATA_DIR / "bot_logs"
 BOT_PROCESSES = {}
+BOT_TRADE_BUDGETS = {}
 STARTUP_CHECK_SECONDS = 0.35
 
 
@@ -38,9 +46,11 @@ BOTS = {
         "description": (
             "Paper tests NO trades only on 15-minute BTC Kalshi markets using "
             "the target-distance rules, momentum checks, and spread filter. "
-            f"Up to ${PAPER_TRADE_BUDGET:.0f} per trade in whole contracts, once per market."
+            "Whole contracts, once per market."
         ),
         "env": {"KALSHI_LIVE_TRADING": "false"},
+        "budgetEnv": "KALSHI_PAPER_TRADE_BUDGET",
+        "defaultTradeBudget": PAPER_TRADE_BUDGET,
     },
     "btc15_dual_paper": {
         "name": "15m YES/NO Paper Bot",
@@ -49,10 +59,12 @@ BOTS = {
         "description": (
             "Paper trades YES above the target or NO below it: $10 distance "
             "within 4 minutes, or $50 within 5 minutes. "
-            f"Up to ${PAPER_TRADE_BUDGET:.0f} per trade, once per market, "
+            "One entry per market, "
             "with the existing price, momentum, and spread checks."
         ),
         "env": {"KALSHI_LIVE_TRADING": "false"},
+        "budgetEnv": "KALSHI_PAPER_TRADE_BUDGET",
+        "defaultTradeBudget": PAPER_TRADE_BUDGET,
     },
     "btc15_live": {
         "name": "15m Live Bot",
@@ -63,6 +75,20 @@ BOTS = {
             "live risk limits, daily cap, and live_trades.csv logging."
         ),
         "env": {"KALSHI_LIVE_TRADING": "true"},
+        "budgetEnv": "KALSHI_LIVE_TRADE_BUDGET",
+        "defaultTradeBudget": DEFAULT_LIVE_TRADE_BUDGET,
+    },
+    DUAL_LIVE_BOT_ID: {
+        "name": "15m YES/NO Live Bot",
+        "script": "dual_live_bot.py",
+        "mode": "live",
+        "description": (
+            "Live YES/NO trades using the 4m/$10 and 5m/$50 rules. "
+            "One entry per market."
+        ),
+        "env": {"KALSHI_LIVE_TRADING": "true"},
+        "budgetEnv": "KALSHI_LIVE_TRADE_BUDGET",
+        "defaultTradeBudget": DEFAULT_LIVE_TRADE_BUDGET,
     },
     "scalp_paper": {
         "name": "Scalp Paper Bot",
@@ -165,7 +191,9 @@ def trade_stats(rows, *, cost_field):
     }
 
 
-def live_trade_stats(rows):
+def live_trade_stats(rows, *, bot_id=None):
+    if bot_id is not None:
+        rows = [row for row in rows if (row.get("bot_id") or LEGACY_LIVE_BOT_ID) == bot_id]
     trades = [
         row for row in rows
         if not row.get("error")
@@ -227,10 +255,12 @@ def scalp_stats(rows):
 
 
 def build_payload():
+    live_rows = read_csv(LIVE_FILE)
     return {
         "paper": trade_stats(read_csv(PAPER_FILE), cost_field="cost"),
         "dualPaper": trade_stats(read_csv(DUAL_PAPER_FILE), cost_field="cost"),
-        "live": live_trade_stats(read_csv(LIVE_FILE)),
+        "live": live_trade_stats(live_rows, bot_id=LEGACY_LIVE_BOT_ID),
+        "dualLive": live_trade_stats(live_rows, bot_id=DUAL_LIVE_BOT_ID),
         "scalp": scalp_stats(read_csv(SCALP_FILE)),
         "shadow": shadow_stats(read_csv(SHADOW_FILE)),
         "bots": bot_statuses(),
@@ -256,6 +286,11 @@ def bot_statuses():
             "pid": process.pid if running else None,
             "returnCode": None if process is None or running else process.poll(),
             "logFile": str(log_path(bot_id).relative_to(ROOT)),
+            "supportsTradeBudget": "budgetEnv" in config,
+            "tradeBudget": (
+                f"{BOT_TRADE_BUDGETS.get(bot_id, config['defaultTradeBudget']):.2f}"
+                if "budgetEnv" in config else None
+            ),
         })
 
     return statuses
@@ -270,32 +305,54 @@ def dashboard_event(message):
     print(f"[{timestamp}] {message}", flush=True)
 
 
-def start_bot(bot_id):
+def start_bot(bot_id, *, trade_budget=None):
     if bot_id not in BOTS:
         dashboard_event(f"START failed | unknown bot: {bot_id}")
         return {"error": "unknown bot"}, 404
 
+    config = BOTS[bot_id]
+    budget = None
+    if "budgetEnv" in config:
+        try:
+            budget = parse_trade_budget(
+                config["defaultTradeBudget"] if trade_budget is None else trade_budget
+            )
+        except ValueError as exc:
+            return {"ok": False, "message": str(exc), "bot": bot_id}, 400
+    elif trade_budget is not None:
+        return {"ok": False, "message": "This bot does not use a dollar budget", "bot": bot_id}, 400
+
     process = BOT_PROCESSES.get(bot_id)
     if process_running(process):
+        current_budget = BOT_TRADE_BUDGETS.get(bot_id, config.get("defaultTradeBudget"))
+        if trade_budget is not None and budget != current_budget:
+            return {"ok": False, "message": "Stop the bot before changing its budget", "bot": bot_id}, 409
         dashboard_event(
             f"START skipped | {BOTS[bot_id]['name']} already running | pid={process.pid}"
         )
         return {"ok": True, "message": "already running", "bot": bot_id}, 200
 
     LOG_DIR.mkdir(parents=True, exist_ok=True)
-    config = BOTS[bot_id]
+    if config["mode"] == "live":
+        for other_id, other_process in BOT_PROCESSES.items():
+            if BOTS[other_id]["mode"] == "live" and process_running(other_process):
+                message = f"Stop {BOTS[other_id]['name']} before starting another live bot."
+                dashboard_event(f"START blocked | {message}")
+                return {"ok": False, "message": message, "bot": bot_id}, 409
     env = os.environ.copy()
     env["PYTHONPATH"] = str(ROOT / "src")
     env.update(config.get("env", {}))
-    log_file = log_path(bot_id).open("a")
-    process = subprocess.Popen(
-        [sys.executable, str(ROOT / "src" / config["script"])],
-        cwd=ROOT,
-        env=env,
-        stdout=log_file,
-        stderr=subprocess.STDOUT,
-        start_new_session=True,
-    )
+    if budget is not None:
+        env[config["budgetEnv"]] = f"{budget:.2f}"
+    with log_path(bot_id).open("a") as log_file:
+        process = subprocess.Popen(
+            [sys.executable, str(ROOT / "src" / config["script"])],
+            cwd=ROOT,
+            env=env,
+            stdout=log_file,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
     time.sleep(STARTUP_CHECK_SECONDS)
     return_code = process.poll()
     if return_code is not None:
@@ -311,6 +368,8 @@ def start_bot(bot_id):
         }, 409
 
     BOT_PROCESSES[bot_id] = process
+    if budget is not None:
+        BOT_TRADE_BUDGETS[bot_id] = budget
     dashboard_event(
         f"STARTED | {config['name']} | pid={process.pid} | log={log_path(bot_id).relative_to(ROOT)}"
     )
@@ -418,7 +477,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
         bot_id = body.get("botId")
         if path == "/api/bots/start":
-            payload, status = start_bot(bot_id)
+            payload, status = start_bot(bot_id, trade_budget=body.get("tradeBudget"))
             json_response(self, payload, status=status)
             return
 

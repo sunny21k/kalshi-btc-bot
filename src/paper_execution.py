@@ -4,6 +4,8 @@ import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
 
+from trade_sizing import contracts_for_budget as size_contracts
+
 
 TRADE_FILE = "data/paper_trades.csv"
 DUAL_TRADE_FILE = "data/dual_paper_trades.csv"
@@ -142,14 +144,7 @@ def has_traded(ticker, trade_file=None):
 
 
 def contracts_for_budget(entry_price, budget=PAPER_TRADE_BUDGET):
-    entry_price = Decimal(str(entry_price))
-    budget = Decimal(str(budget))
-    if not entry_price.is_finite() or not Decimal("0") < entry_price <= Decimal("1"):
-        raise ValueError("paper entry price must be greater than $0 and at most $1")
-    if not budget.is_finite() or budget < entry_price:
-        raise ValueError("paper trade budget must cover at least one contract")
-
-    return int(budget // entry_price)
+    return size_contracts(entry_price, budget)
 
 
 def record_paper_trade(

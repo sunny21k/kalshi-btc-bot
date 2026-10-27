@@ -7,24 +7,28 @@ import tempfile
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_CEILING
 from pathlib import Path
 
 from kalshi_api import create_order, get_order_fills
+from trade_sizing import contracts_for_budget, parse_trade_budget
 
 
 LIVE_TRADE_FILE = "data/live_trades.csv"
-MAX_CONTRACTS = 1
-MAX_TRADE_COST = Decimal("1.00")
+LEGACY_LIVE_BOT_ID = "btc15_live"
+DUAL_LIVE_BOT_ID = "btc15_dual_live"
+DEFAULT_LIVE_TRADE_BUDGET = Decimal("1.00")
 MAX_LIVE_TRADES_PER_DAY = 30
 MAX_DAILY_LIVE_LOSS = Decimal(os.getenv("KALSHI_MAX_DAILY_LIVE_LOSS", "10"))
 FIELDNAMES = [
     "timestamp",
     "trade_id",
+    "bot_id",
     "ticker",
     "side",
     "prediction",
     "entry_price",
+    "trade_budget",
     "strategy_name",
     "seconds_remaining",
     "contracts",
@@ -88,6 +92,7 @@ def _initialize_live_trade_file():
 
 def normalize_live_trade_row(row):
     normalized = {field: row.get(field) or "" for field in FIELDNAMES}
+    normalized["bot_id"] = normalized["bot_id"] or LEGACY_LIVE_BOT_ID
     if not normalized["trade_id"]:
         normalized["trade_id"] = legacy_trade_id("live", normalized)
     if normalized["side"] not in ("YES", "NO") or not normalized["ticker"]:
@@ -157,7 +162,7 @@ def live_rows_for_day(day, *, now=None):
         reader = csv.DictReader(file)
 
         for row in reader:
-            if row.get("error") or not row.get("timestamp"):
+            if not row.get("timestamp"):
                 continue
 
             timestamp = parse_timestamp(row["timestamp"])
@@ -194,8 +199,18 @@ def validate_live_risk_limits(*, now=None):
         raise RuntimeError("Daily live loss limit reached")
 
 
+def normalize_live_entry_price(entry_price):
+    try:
+        price = Decimal(str(entry_price))
+    except InvalidOperation as exc:
+        raise ValueError("Invalid live entry price") from exc
+    if not price.is_finite() or not 0 < price <= 1:
+        raise ValueError("Live entry price must be greater than $0 and at most $1")
+    return price.quantize(Decimal("0.0001"), rounding=ROUND_CEILING)
+
+
 def order_details_for_side(side, entry_price):
-    entry_price = Decimal(str(entry_price))
+    entry_price = normalize_live_entry_price(entry_price)
 
     if side == "YES":
         return "bid", entry_price
@@ -259,6 +274,8 @@ def live_filled_count(row):
 
 
 def live_fill_status(row):
+    if row.get("status") == "SUBMISSION_UNKNOWN":
+        return "UNKNOWN"
     if row.get("error"):
         return "REJECTED"
     count = live_filled_count(row)
@@ -278,6 +295,16 @@ def append_live_trade_row(row):
             writer.writerow(row)
 
 
+def replace_live_trade_row(updated):
+    with live_ledger_lock():
+        with open(LIVE_TRADE_FILE, "r", newline="") as file:
+            rows = list(csv.DictReader(file))
+        _write_live_trade_rows([
+            updated if row.get("trade_id") == updated["trade_id"] else row
+            for row in rows
+        ])
+
+
 def place_live_trade(
     ticker,
     side,
@@ -289,7 +316,22 @@ def place_live_trade(
     contracts=1,
     exchange_index=None,
     create_order_fn=create_order,
+    bot_id=LEGACY_LIVE_BOT_ID,
+    trade_budget=DEFAULT_LIVE_TRADE_BUDGET,
 ):
+    trade_budget = parse_trade_budget(trade_budget)
+    entry_price = normalize_live_entry_price(entry_price)
+    max_contracts = contracts_for_budget(entry_price, trade_budget)
+    try:
+        quantity = Decimal(str(contracts))
+    except InvalidOperation as exc:
+        raise ValueError("Live contracts must be a positive whole number") from exc
+    if not quantity.is_finite() or quantity <= 0 or quantity != quantity.to_integral_value():
+        raise ValueError("Live contracts must be a positive whole number")
+    if quantity > max_contracts:
+        raise ValueError(f"Live trade cost exceeds ${trade_budget:.2f} budget")
+    contracts = int(quantity)
+
     initialize_live_trade_file()
 
     if has_live_traded(ticker):
@@ -297,14 +339,8 @@ def place_live_trade(
 
     validate_live_risk_limits()
 
-    contracts = int(contracts)
-    if contracts != MAX_CONTRACTS:
-        raise ValueError("Live trading is limited to exactly 1 contract per trade")
-
     entry_price = Decimal(str(entry_price))
     max_cost = entry_price * contracts
-    if max_cost > MAX_TRADE_COST:
-        raise ValueError("Live trade cost exceeds $1.00 max")
 
     order_side, order_price = order_details_for_side(side, entry_price)
     trade_id = f"live-{uuid.uuid4()}"
@@ -313,10 +349,12 @@ def place_live_trade(
     base_row = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "trade_id": trade_id,
+        "bot_id": bot_id,
         "ticker": ticker,
         "side": side,
         "prediction": prediction,
         "entry_price": f"{entry_price:.4f}",
+        "trade_budget": f"{trade_budget:.2f}",
         "strategy_name": strategy_name,
         "seconds_remaining": (
             f"{Decimal(str(seconds_remaining)):.4f}"
@@ -335,7 +373,7 @@ def place_live_trade(
         "order_side": order_side,
         "order_price": f"{order_price:.4f}",
         "client_order_id": client_order_id,
-        "status": "",
+        "status": "SUBMITTING",
         "order_id": "",
         "actual_result": "",
         "profit_loss": "",
@@ -344,6 +382,8 @@ def place_live_trade(
         "error": "",
     }
 
+    # Reserve the market before sending an order, including across restarts.
+    append_live_trade_row(base_row)
     try:
         response = create_order_fn(
             ticker,
@@ -356,9 +396,9 @@ def place_live_trade(
         )
     except Exception as exc:
         failed_row = dict(base_row)
-        failed_row["status"] = "ERROR"
+        failed_row["status"] = "SUBMISSION_UNKNOWN"
         failed_row["error"] = str(exc)
-        append_live_trade_row(failed_row)
+        replace_live_trade_row(failed_row)
         raise
 
     completed_row = dict(base_row)
@@ -367,7 +407,7 @@ def place_live_trade(
     completed_row["filled_count"] = normalize_filled_count(response, contracts)
     completed_row["fill_status"] = live_fill_status(completed_row)
     completed_row["response"] = json.dumps(response, sort_keys=True)
-    append_live_trade_row(completed_row)
+    replace_live_trade_row(completed_row)
 
     return True
 

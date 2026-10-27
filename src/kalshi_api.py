@@ -12,7 +12,7 @@ load_dotenv()
 API_KEY_ID = os.getenv("KALSHI_API_KEY_ID")
 PRIVATE_KEY_PATH = os.getenv("KALSHI_PRIVATE_KEY_PATH")
 
-BASE_URL = "https://api.elections.kalshi.com"
+BASE_URL = "https://external-api.kalshi.com"
 
 
 def load_private_key():
