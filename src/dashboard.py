@@ -5,6 +5,7 @@ import os
 import signal
 import subprocess
 import sys
+import threading
 import time
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
@@ -17,10 +18,14 @@ from live_execution import (
     DUAL_LIVE_BOT_ID,
     DEFAULT_LIVE_TRADE_BUDGET,
     LEGACY_LIVE_BOT_ID,
+    MAX_LIVE_TRADES_PER_DAY,
     live_filled_count,
     live_fill_status,
+    parse_daily_live_trade_limit,
 )
 from paper_execution import DUAL_TRADE_FILE, PAPER_TRADE_BUDGET
+from prediction_tracker import refresh_results
+from performance_analytics import build_performance
 from trade_sizing import parse_trade_budget
 
 
@@ -35,7 +40,18 @@ SCALP_FILE = DATA_DIR / "scalp_paper_trades.csv"
 LOG_DIR = DATA_DIR / "bot_logs"
 BOT_PROCESSES = {}
 BOT_TRADE_BUDGETS = {}
+BOT_DAILY_LIVE_LIMITS = {}
 STARTUP_CHECK_SECONDS = 0.35
+RESULT_SYNC_LOCK = threading.Lock()
+RESULT_SYNC_CANCEL = threading.Event()
+RESULT_SYNC = {
+    "running": False,
+    "stopping": False,
+    "startedAt": None,
+    "completedAt": None,
+    "summary": None,
+    "error": None,
+}
 
 
 BOTS = {
@@ -153,7 +169,7 @@ def bucket_stats(rows, field):
     return {key: side_stats(value) for key, value in sorted(buckets.items())}
 
 
-def trade_stats(rows, *, cost_field):
+def trade_stats(rows, *, cost_field, performance_kind="paper"):
     valid_rows = [row for row in rows if not row.get("error")]
     settled = [row for row in valid_rows if row.get("actual_result") in ("YES", "NO")]
     wins = [
@@ -188,6 +204,7 @@ def trade_stats(rows, *, cost_field):
         "byStrategy": bucket_stats(valid_rows, "strategy_name"),
         "byTime": bucket_stats(valid_rows, "seconds_remaining"),
         "recent": valid_rows[-20:][::-1],
+        "performance": build_performance(valid_rows, kind=performance_kind),
     }
 
 
@@ -200,7 +217,7 @@ def live_trade_stats(rows, *, bot_id=None):
         and row.get("side") in ("YES", "NO")
         and (live_filled_count(row) or Decimal("0")) > 0
     ]
-    stats = trade_stats(trades, cost_field="fill_cost")
+    stats = trade_stats(trades, cost_field="fill_cost", performance_kind="live")
     stats["recent"] = [
         {**row, "fill_status": live_fill_status(row)}
         for row in reversed(rows[-20:])
@@ -251,6 +268,7 @@ def scalp_stats(rows):
         "peakProfit": money(peak_profit),
         "byReason": dict(reasons.most_common(12)),
         "recent": valid_rows[-30:][::-1],
+        "performance": build_performance(valid_rows, kind="scalp"),
     }
 
 
@@ -264,7 +282,72 @@ def build_payload():
         "scalp": scalp_stats(read_csv(SCALP_FILE)),
         "shadow": shadow_stats(read_csv(SHADOW_FILE)),
         "bots": bot_statuses(),
+        "resultSync": result_sync_status(),
     }
+
+
+def result_sync_status():
+    with RESULT_SYNC_LOCK:
+        return dict(RESULT_SYNC)
+
+
+def run_result_sync():
+    summary = None
+    error = None
+    try:
+        summary = refresh_results(
+            should_stop=RESULT_SYNC_CANCEL.is_set,
+            on_progress=publish_result_progress,
+        )
+    except Exception as exc:
+        error = str(exc)[:1000]
+    with RESULT_SYNC_LOCK:
+        RESULT_SYNC.update(
+            running=False,
+            stopping=False,
+            completedAt=datetime.now(timezone.utc).isoformat(),
+            summary=summary,
+            error=error,
+        )
+    outcome = 'failed: ' + error if error else 'stopped' if summary and summary.get("stopped") else 'completed'
+    dashboard_event(f"RESULTS refresh {outcome}")
+
+
+def publish_result_progress(summary):
+    with RESULT_SYNC_LOCK:
+        RESULT_SYNC["summary"] = summary
+
+
+def stop_result_sync():
+    with RESULT_SYNC_LOCK:
+        if not RESULT_SYNC["running"]:
+            return {"ok": True, "resultSync": dict(RESULT_SYNC)}, 200
+        RESULT_SYNC_CANCEL.set()
+        RESULT_SYNC["stopping"] = True
+        return {"ok": True, "resultSync": dict(RESULT_SYNC)}, 202
+
+
+def start_result_sync():
+    with RESULT_SYNC_LOCK:
+        if RESULT_SYNC["running"]:
+            return {"ok": True, "resultSync": dict(RESULT_SYNC)}, 202
+        RESULT_SYNC_CANCEL.clear()
+        RESULT_SYNC.update(
+            running=True,
+            stopping=False,
+            startedAt=datetime.now(timezone.utc).isoformat(),
+            completedAt=None,
+            summary=None,
+            error=None,
+        )
+        try:
+            threading.Thread(target=run_result_sync, name="result-sync", daemon=True).start()
+        except Exception as exc:
+            RESULT_SYNC.update(running=False, error=str(exc)[:1000])
+            return {"ok": False, "error": RESULT_SYNC["error"]}, 500
+        status = dict(RESULT_SYNC)
+    dashboard_event("RESULTS refresh started")
+    return {"ok": True, "resultSync": status}, 202
 
 
 def process_running(process):
@@ -291,6 +374,9 @@ def bot_statuses():
                 f"{BOT_TRADE_BUDGETS.get(bot_id, config['defaultTradeBudget']):.2f}"
                 if "budgetEnv" in config else None
             ),
+            **({
+                "dailyLiveOrderLimit": BOT_DAILY_LIVE_LIMITS.get(bot_id, MAX_LIVE_TRADES_PER_DAY),
+            } if config["mode"] == "live" else {}),
         })
 
     return statuses
@@ -305,7 +391,7 @@ def dashboard_event(message):
     print(f"[{timestamp}] {message}", flush=True)
 
 
-def start_bot(bot_id, *, trade_budget=None):
+def start_bot(bot_id, *, trade_budget=None, daily_live_order_limit=None):
     if bot_id not in BOTS:
         dashboard_event(f"START failed | unknown bot: {bot_id}")
         return {"error": "unknown bot"}, 404
@@ -322,11 +408,24 @@ def start_bot(bot_id, *, trade_budget=None):
     elif trade_budget is not None:
         return {"ok": False, "message": "This bot does not use a dollar budget", "bot": bot_id}, 400
 
+    daily_limit = None
+    if config["mode"] == "live":
+        try:
+            daily_limit = parse_daily_live_trade_limit(
+                MAX_LIVE_TRADES_PER_DAY if daily_live_order_limit is None else daily_live_order_limit
+            )
+        except ValueError as exc:
+            return {"ok": False, "message": str(exc), "bot": bot_id}, 400
+    elif daily_live_order_limit is not None:
+        return {"ok": False, "message": "Daily live order limits apply only to live bots", "bot": bot_id}, 400
+
     process = BOT_PROCESSES.get(bot_id)
     if process_running(process):
         current_budget = BOT_TRADE_BUDGETS.get(bot_id, config.get("defaultTradeBudget"))
         if trade_budget is not None and budget != current_budget:
             return {"ok": False, "message": "Stop the bot before changing its budget", "bot": bot_id}, 409
+        if daily_live_order_limit is not None and daily_limit != BOT_DAILY_LIVE_LIMITS.get(bot_id, MAX_LIVE_TRADES_PER_DAY):
+            return {"ok": False, "message": "Stop the bot before changing its daily live order limit", "bot": bot_id}, 409
         dashboard_event(
             f"START skipped | {BOTS[bot_id]['name']} already running | pid={process.pid}"
         )
@@ -344,6 +443,8 @@ def start_bot(bot_id, *, trade_budget=None):
     env.update(config.get("env", {}))
     if budget is not None:
         env[config["budgetEnv"]] = f"{budget:.2f}"
+    if daily_limit is not None:
+        env["KALSHI_MAX_LIVE_TRADES_PER_DAY"] = str(daily_limit)
     with log_path(bot_id).open("a") as log_file:
         process = subprocess.Popen(
             [sys.executable, str(ROOT / "src" / config["script"])],
@@ -370,6 +471,8 @@ def start_bot(bot_id, *, trade_budget=None):
     BOT_PROCESSES[bot_id] = process
     if budget is not None:
         BOT_TRADE_BUDGETS[bot_id] = budget
+    if daily_limit is not None:
+        BOT_DAILY_LIVE_LIMITS[bot_id] = daily_limit
     dashboard_event(
         f"STARTED | {config['name']} | pid={process.pid} | log={log_path(bot_id).relative_to(ROOT)}"
     )
@@ -432,6 +535,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if path == "/api/stats":
             json_response(self, build_payload())
             return
+        if path == "/api/results/status":
+            json_response(self, result_sync_status())
+            return
 
         requested = "index.html" if path == "/" else path.lstrip("/")
         file_path = (DASHBOARD_DIST / requested).resolve()
@@ -476,8 +582,20 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return
 
         bot_id = body.get("botId")
+        if path == "/api/results/refresh":
+            payload, status = start_result_sync()
+            json_response(self, payload, status=status)
+            return
+        if path == "/api/results/cancel":
+            payload, status = stop_result_sync()
+            json_response(self, payload, status=status)
+            return
         if path == "/api/bots/start":
-            payload, status = start_bot(bot_id, trade_budget=body.get("tradeBudget"))
+            payload, status = start_bot(
+                bot_id,
+                trade_budget=body.get("tradeBudget"),
+                daily_live_order_limit=body.get("dailyLiveOrderLimit"),
+            )
             json_response(self, payload, status=status)
             return
 

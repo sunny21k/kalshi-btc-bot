@@ -30,7 +30,7 @@ class DualLiveBotTests(unittest.TestCase):
         self.path = self.root / "live_trades.csv"
         for target, name, value in (
             (live_execution, "LIVE_TRADE_FILE", str(self.path)),
-            (live_execution, "MAX_DAILY_LIVE_LOSS", Decimal("10")),
+            (live_execution, "MAX_LIVE_TRADES_PER_DAY", 30),
             (performance, "LIVE_TRADE_FILE", str(self.path)),
         ):
             patcher = patch.object(target, name, value)
@@ -195,23 +195,22 @@ class DualLiveBotTests(unittest.TestCase):
             )
         create.assert_not_called()
 
-    def test_legacy_losses_and_size_limits_block_new_bot_orders(self):
+    def test_legacy_losses_do_not_block_orders_but_size_limits_still_apply(self):
         live_execution.write_live_trade_rows([self.row(
-            bot_id=live_execution.LEGACY_LIVE_BOT_ID, ticker="LOSS", profit_loss="-10.0000",
+            bot_id=live_execution.LEGACY_LIVE_BOT_ID, ticker="LOSS", profit_loss="-100.1469",
         )])
-        create = Mock()
-        with self.assertRaisesRegex(RuntimeError, "Daily live loss limit reached"):
-            live_execution.place_live_trade(
-                ticker="NEW", side="YES", prediction="UP", entry_price="0.80",
-                bot_id=live_execution.DUAL_LIVE_BOT_ID, create_order_fn=create,
-            )
-        live_execution.write_live_trade_rows([])
+        create = Mock(return_value={"order_id": "new-order", "fill_count": "1.00"})
+        self.assertTrue(live_execution.place_live_trade(
+            ticker="NEW", side="YES", prediction="UP", entry_price="0.80",
+            bot_id=live_execution.DUAL_LIVE_BOT_ID, create_order_fn=create,
+        ))
+        self.assertEqual("-100.1469", live_execution.read_live_trade_rows()[0]["profit_loss"])
         with self.assertRaisesRegex(ValueError, "exceeds.*budget"):
             live_execution.place_live_trade(
                 ticker="NEW", side="YES", prediction="UP", entry_price="0.80", contracts=125,
                 bot_id=live_execution.DUAL_LIVE_BOT_ID, create_order_fn=create,
             )
-        create.assert_not_called()
+        create.assert_called_once()
 
     def test_submission_is_reserved_before_network_and_unknown_is_not_retried(self):
         def interrupted_submission(ticker, **kwargs):

@@ -67,7 +67,26 @@ def request(method, path, *, params=None, json=None):
         json=json,
         timeout=15,
     )
-    response.raise_for_status()
+    try:
+        response.raise_for_status()
+    except requests.HTTPError as exc:
+        try:
+            payload = response.json()
+        except ValueError:
+            raise exc
+        detail = payload.get("error", payload) if isinstance(payload, dict) else {}
+        if isinstance(detail, dict):
+            message = "; ".join(
+                f"{key}={detail[key]}" for key in ("code", "message", "details")
+                if detail.get(key) not in (None, "")
+            )
+            if message:
+                raise requests.HTTPError(
+                    f"{exc} | Kalshi: {message[:2000]}",
+                    response=response,
+                    request=exc.request,
+                ) from exc
+        raise
     return response.json()
 
 

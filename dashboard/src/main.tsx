@@ -16,6 +16,17 @@ import {
   TrendingUp,
 } from 'lucide-react';
 import './styles.css';
+import type { PerformanceData } from './performance';
+
+const PerformancePanel = React.lazy(() => import('./PerformancePanel').then((module) => ({ default: module.PerformancePanel })));
+
+function BotPerformance({ data }: { data?: PerformanceData }) {
+  return (
+    <React.Suspense fallback={<section className="performance-section performance-loading" role="status">Loading performance...</section>}>
+      <PerformancePanel data={data} />
+    </React.Suspense>
+  );
+}
 
 type SideStats = {
   total: number;
@@ -28,6 +39,7 @@ type TradeRow = Record<string, string>;
 type BucketStats = Record<string, SideStats>;
 
 type TradeStats = {
+  performance?: PerformanceData;
   total: number;
   settled: number;
   unsettled: number;
@@ -53,6 +65,7 @@ type ShadowStats = {
 };
 
 type ScalpStats = {
+  performance?: PerformanceData;
   total: number;
   closed: number;
   open: number;
@@ -74,6 +87,25 @@ type DashboardStats = {
   scalp: ScalpStats;
   shadow: ShadowStats;
   bots: BotStatus[];
+  resultSync?: ResultSync;
+};
+
+type ResultSync = {
+  running: boolean;
+  stopping?: boolean;
+  startedAt: string | null;
+  completedAt: string | null;
+  error: string | null;
+  summary: {
+    paperSettled: number;
+    dualPaperSettled: number;
+    liveSettled: number;
+    predictionsRecorded: number;
+    errorCount: number;
+    checked?: number;
+    stopped?: boolean;
+    errors: Array<{ stage: string; message: string }>;
+  } | null;
 };
 
 type BotStatus = {
@@ -87,9 +119,10 @@ type BotStatus = {
   logFile: string;
   supportsTradeBudget?: boolean;
   tradeBudget?: string | null;
+  dailyLiveOrderLimit?: number;
 };
 
-type BotAction = (botId: string, action: 'start' | 'stop', tradeBudget?: string) => void;
+type BotAction = (botId: string, action: 'start' | 'stop', tradeBudget?: string, dailyLiveOrderLimit?: string) => void;
 
 const moneyClass = (value: string) => Number(value || 0) >= 0 ? 'money-positive' : 'money-negative';
 const fmtPct = (value: number | null) => value === null ? 'N/A' : `${value.toFixed(2)}%`;
@@ -370,10 +403,17 @@ function BotControls({ bots, onAction }: { bots?: BotStatus[]; onAction: (botId:
 
 function SingleBotControl({ bot, onAction }: { bot?: BotStatus; onAction: BotAction }) {
   const [budget, setBudget] = React.useState(bot?.tradeBudget ?? '1.00');
+  const [dailyLimit, setDailyLimit] = React.useState(String(bot?.dailyLiveOrderLimit || 30));
+  const [noDailyCap, setNoDailyCap] = React.useState(bot?.dailyLiveOrderLimit === 0);
 
   React.useEffect(() => {
     setBudget(bot?.tradeBudget ?? '1.00');
   }, [bot?.id, bot?.running, bot?.tradeBudget]);
+
+  React.useEffect(() => {
+    setDailyLimit(String(bot?.dailyLiveOrderLimit || 30));
+    setNoDailyCap(bot?.dailyLiveOrderLimit === 0);
+  }, [bot?.id, bot?.running, bot?.dailyLiveOrderLimit]);
 
   if (!bot) {
     return (
@@ -384,61 +424,90 @@ function SingleBotControl({ bot, onAction }: { bot?: BotStatus; onAction: BotAct
   }
 
   return (
-    <section className="surface-card border p-4">
-      <div className="mb-3 flex items-start justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-2">
-            <Bot size={17} className="muted-heading" />
-            <h2 className="text-lg font-semibold">{bot.name}</h2>
-          </div>
-          <div className="muted-text mt-1 text-sm">{bot.mode === 'live' ? 'Real money' : 'Paper only'}</div>
+    <section className="bot-control" aria-label={`${bot.name} controls`}>
+      <header className="bot-control-heading">
+        <div className="bot-control-identity">
+          <Bot size={17} className="muted-heading shrink-0" />
+          <h2>{bot.name}</h2>
+          <span className="bot-control-mode">{bot.mode === 'live' ? 'Real money' : 'Paper only'}</span>
         </div>
-        <span className={`status-text text-xs font-semibold uppercase tracking-wide ${bot.running ? 'money-positive' : 'muted-text'}`}>
+        <span className={`bot-control-status ${bot.running ? 'money-positive' : 'muted-text'}`}>
           {bot.running ? `Running ${bot.pid ?? ''}` : 'Stopped'}
         </span>
-      </div>
-      <p className="muted-heading text-sm leading-6">{bot.description}</p>
-      {bot.supportsTradeBudget && (
-        <div className="mt-3">
-          <label htmlFor={`${bot.id}-budget`} className="muted-heading text-xs font-medium">Entry budget ($, before fees)</label>
-          <input
-            id={`${bot.id}-budget`}
-            type="number"
-            inputMode="decimal"
-            min="0.01"
-            step="0.01"
-            value={budget}
-            onChange={(event) => setBudget(event.target.value)}
-            disabled={bot.running}
-            className="surface-soft mt-1 w-full min-w-0 border px-3 py-2 text-sm tabular-nums disabled:opacity-70"
-          />
+      </header>
+      <div className="bot-control-body">
+        <p className="bot-control-description muted-heading">{bot.description}</p>
+        <div className="bot-control-settings">
+          {bot.supportsTradeBudget && (
+            <div className="bot-control-field">
+              <label htmlFor={`${bot.id}-budget`}>Entry budget ($, before fees)</label>
+              <input
+                id={`${bot.id}-budget`}
+                type="number"
+                inputMode="decimal"
+                min="0.01"
+                step="0.01"
+                value={budget}
+                onChange={(event) => setBudget(event.target.value)}
+                disabled={bot.running}
+                className="surface-soft w-full min-w-0 border px-3 text-sm tabular-nums disabled:opacity-70"
+              />
+            </div>
+          )}
+          {bot.mode === 'live' && bot.dailyLiveOrderLimit !== undefined && (
+            <div className="bot-control-field">
+              <label htmlFor={`${bot.id}-daily-limit`}>Daily order limit (UTC)</label>
+              <input
+                id={`${bot.id}-daily-limit`}
+                type="number"
+                inputMode="numeric"
+                min="1"
+                step="1"
+                value={dailyLimit}
+                onChange={(event) => setDailyLimit(event.target.value)}
+                disabled={bot.running || noDailyCap}
+                className="surface-soft w-full min-w-0 border px-3 text-sm tabular-nums disabled:opacity-70"
+              />
+              <label className="bot-control-checkbox">
+                <input
+                  type="checkbox"
+                  checked={noDailyCap}
+                  onChange={(event) => setNoDailyCap(event.target.checked)}
+                  disabled={bot.running}
+                />
+                No daily cap
+              </label>
+            </div>
+          )}
+          <div className="bot-control-action">
+            {bot.running ? (
+              <button
+                onClick={() => onAction(bot.id, 'stop')}
+                className="danger-button inline-flex items-center justify-center gap-2 border px-3 py-2 text-sm font-medium"
+              >
+                <Square size={15} /> Stop
+              </button>
+            ) : (
+              <button
+                onClick={() => onAction(
+                  bot.id,
+                  'start',
+                  bot.supportsTradeBudget ? budget : undefined,
+                  bot.mode === 'live' && bot.dailyLiveOrderLimit !== undefined ? (noDailyCap ? '0' : dailyLimit) : undefined,
+                )}
+                className={`inline-flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium ${
+                  bot.mode === 'live'
+                    ? 'bg-red-700 text-white hover:bg-red-800'
+                    : 'primary-button text-white'
+                }`}
+              >
+                <Play size={15} /> Start
+              </button>
+            )}
+          </div>
         </div>
-      )}
-      <div className="surface-soft mt-4 border px-3 py-2 text-xs">
-        <div className="muted-text">Log file</div>
-        <div className="mt-1 truncate font-medium">{bot.logFile}</div>
       </div>
-      <div className="mt-4 flex justify-end">
-        {bot.running ? (
-          <button
-            onClick={() => onAction(bot.id, 'stop')}
-            className="danger-button inline-flex items-center justify-center gap-2 border px-3 py-2 text-sm font-medium"
-          >
-            <Square size={15} /> Stop
-          </button>
-        ) : (
-          <button
-            onClick={() => onAction(bot.id, 'start', bot.supportsTradeBudget ? budget : undefined)}
-            className={`inline-flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium ${
-              bot.mode === 'live'
-                ? 'bg-red-700 text-white hover:bg-red-800'
-                : 'primary-button text-white'
-            }`}
-          >
-            <Play size={15} /> Start
-          </button>
-        )}
-      </div>
+      <div className="bot-control-log muted-text"><span>Log</span><code>{bot.logFile}</code></div>
     </section>
   );
 }
@@ -458,7 +527,7 @@ function BotTabs({ active, onChange, data }: { active: TabId; onChange: (tab: Ta
     <aside className="surface-sidebar border-r">
       <div className="px-4 py-4">
         <div className="mb-3 text-xs font-semibold uppercase tracking-wide muted-text">Bots</div>
-        <div className="grid gap-1">
+        <div className="bot-nav-grid grid gap-1">
         {tabs.map((tab) => (
           <button
             key={tab.id}
@@ -489,15 +558,17 @@ function SectionLabel({ title, subtitle }: { title: string; subtitle: string }) 
   );
 }
 
-function RiskNotes() {
+function RiskNotes({ dailyLimit }: { dailyLimit?: number }) {
   return (
     <section className="surface-card border p-4">
       <div className="section-title mb-3 flex items-center gap-2 text-sm font-semibold uppercase tracking-wide">
         <CircleDollarSign size={16} /> Risk Notes
       </div>
       <div className="grid gap-2 text-sm">
-        <div className="surface-soft border px-3 py-2">Shared daily live order cap: 30</div>
-        <div className="surface-soft border px-3 py-2">Daily loss stop: <code>KALSHI_MAX_DAILY_LIVE_LOSS</code></div>
+        <div className="surface-soft border px-3 py-2">
+          Shared daily live order cap (UTC): {dailyLimit === undefined ? 'Not reported' : dailyLimit === 0 ? 'No daily cap' : dailyLimit}
+        </div>
+        <div className="surface-soft border px-3 py-2">No daily loss stop</div>
       </div>
     </section>
   );
@@ -624,15 +695,14 @@ function BotWorkspace({ active, data, onAction }: { active: TabId; data: Dashboa
   if (active === 'btc15_paper' || active === 'btc15_dual_paper') {
     const stats = active === 'btc15_dual_paper' ? data.dualPaper : data.paper;
     return (
-      <div className="grid gap-3 2xl:grid-cols-[300px_1fr]">
-        <div className="grid content-start gap-3">
+      <div className="bot-workspace grid gap-3">
+        <BotPerformance key={active} data={stats.performance} />
+        <div className="bot-overview">
           <SingleBotControl key={active} bot={botById[active]} onAction={onAction} />
-          <BucketTable title="Paper by Strategy" buckets={stats.byStrategy} />
-        </div>
-        <div className="grid content-start gap-3">
           <TradePanel title={active === 'btc15_dual_paper' ? '15m YES/NO Paper Trading' : '15m Paper Trading'} stats={stats} />
-          <RecentTrades title="Recent Paper Trades" rows={stats.recent} />
         </div>
+        <RecentTrades title="Recent Paper Trades" rows={stats.recent} />
+        <BucketTable title="Paper by Strategy" buckets={stats.byStrategy} />
       </div>
     );
   }
@@ -640,34 +710,29 @@ function BotWorkspace({ active, data, onAction }: { active: TabId; data: Dashboa
   if (active === 'btc15_live' || active === 'btc15_dual_live') {
     const stats = active === 'btc15_dual_live' ? data.dualLive : data.live;
     return (
-      <div className="grid gap-3">
-        <div className="grid items-start gap-3 2xl:grid-cols-[300px_1fr]">
+      <div className="bot-workspace grid gap-3">
+        <BotPerformance key={active} data={stats.performance} />
+        <div className="bot-overview">
           <SingleBotControl key={active} bot={botById[active]} onAction={onAction} />
-          <div className="grid content-start gap-3">
-            <TradePanel title={active === 'btc15_dual_live' ? '15m YES/NO Live Trading' : '15m Live Trading'} stats={stats} live />
-            <RecentTrades title="Recent Live Orders" rows={stats.recent} live />
-          </div>
+          <TradePanel title={active === 'btc15_dual_live' ? '15m YES/NO Live Trading' : '15m Live Trading'} stats={stats} live />
         </div>
-        <div className="grid items-start gap-3 lg:grid-cols-2">
-          <BucketTable title="Live by Strategy" buckets={stats.byStrategy} />
-          <BucketTable title="Live by Time" buckets={stats.byTime} />
-        </div>
-        <RiskNotes />
+        <RecentTrades title="Recent Live Orders" rows={stats.recent} live />
+        <BucketTable title="Live by Strategy" buckets={stats.byStrategy} />
+        <RiskNotes dailyLimit={botById[active]?.dailyLiveOrderLimit} />
       </div>
     );
   }
 
   if (active === 'scalp_paper') {
     return (
-      <div className="grid gap-3 2xl:grid-cols-[280px_1fr]">
-        <div className="grid content-start gap-3">
+      <div className="bot-workspace grid gap-3">
+        <BotPerformance key={active} data={data.scalp.performance} />
+        <div className="bot-overview">
           <SingleBotControl bot={botById.scalp_paper} onAction={onAction} />
-          <CountTable title="Scalp Reasons" rows={data.scalp.byReason} />
-        </div>
-        <div className="grid content-start gap-3">
           <ScalpPanel stats={data.scalp} />
-          <ScalpTrades rows={data.scalp.recent} />
         </div>
+        <ScalpTrades rows={data.scalp.recent} />
+        <CountTable title="Scalp Reasons" rows={data.scalp.byReason} />
       </div>
     );
   }
@@ -683,12 +748,43 @@ function BotWorkspace({ active, data, onAction }: { active: TabId; data: Dashboa
   );
 }
 
+function ResultSyncStatus({ sync, pending, error }: { sync?: ResultSync; pending: boolean; error: string }) {
+  const busy = pending || sync?.running;
+  const summary = sync?.summary;
+  const failed = error || sync?.error;
+  if (!busy && !failed && !sync?.completedAt) return null;
+
+  return (
+    <div className="min-w-0 text-sm" role="status" aria-live="polite">
+      <div className={`flex items-start gap-2 ${failed || summary?.errorCount ? 'money-negative' : 'muted-heading'}`}>
+        {busy ? <RefreshCw size={15} className="mt-0.5 shrink-0 animate-spin" /> : failed || summary?.errorCount ? <AlertTriangle size={15} className="mt-0.5 shrink-0" /> : null}
+        <span className="min-w-0 break-words">
+          {busy ? `${sync?.stopping ? 'Stopping after the current check...' : 'Updating fills, fees, and settlements...'}${summary?.checked !== undefined ? ` ${summary.checked} check${summary.checked === 1 ? '' : 's'} finished.` : ''}${error ? ` ${error}` : ''}` : failed ? `Results update failed: ${failed}` : summary
+            ? `${summary.stopped ? 'Refresh stopped' : 'Results checked'} ${fmtDateTime(sync?.completedAt ?? '')}. Settled: ${summary.liveSettled} live, ${summary.paperSettled + summary.dualPaperSettled} paper. New predictions: ${summary.predictionsRecorded}.${summary.stopped ? ' Saved updates kept; unchecked trades are unchanged.' : ''}${summary.errorCount ? ` ${summary.errorCount} checks need attention.` : ''}`
+            : 'Results updated.'}
+        </span>
+      </div>
+      {!busy && !!summary?.errors.length && (
+        <details className="muted-heading mt-2">
+          <summary className="cursor-pointer">Refresh errors</summary>
+          <ul className="mt-2 grid gap-1">
+            {summary.errors.map((item, index) => <li className="break-words" key={index}>{item.stage}: {item.message}</li>)}
+          </ul>
+        </details>
+      )}
+    </div>
+  );
+}
+
 function App() {
   const [data, setData] = React.useState<DashboardStats | null>(null);
   const [updated, setUpdated] = React.useState('');
   const [theme, setTheme] = React.useState(() => localStorage.getItem('dashboard-theme') ?? 'dark');
   const [activeTab, setActiveTab] = React.useState<TabId>('btc15_paper');
   const [actionError, setActionError] = React.useState('');
+  const [syncRequestPending, setSyncRequestPending] = React.useState(false);
+  const [stopRequestPending, setStopRequestPending] = React.useState(false);
+  const [refreshError, setRefreshError] = React.useState('');
 
   const load = React.useCallback(async () => {
     const response = await fetch('/api/stats');
@@ -703,7 +799,69 @@ function App() {
     setUpdated(new Date().toLocaleTimeString());
   }, []);
 
-  const botAction = React.useCallback(async (botId: string, action: 'start' | 'stop', tradeBudget?: string) => {
+  const updateResults = React.useCallback(async () => {
+    if (syncRequestPending || data?.resultSync?.running) return;
+    setSyncRequestPending(true);
+    setRefreshError('');
+    try {
+      const response = await fetch('/api/results/refresh', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+      });
+      const result = await response.json() as { resultSync?: ResultSync; error?: string };
+      if (!response.ok) throw new Error(result.error || 'Could not update results');
+      setData((current) => current ? { ...current, resultSync: result.resultSync } : current);
+      await load();
+    } catch (error) {
+      setRefreshError(error instanceof Error ? error.message : 'Could not update results');
+    } finally {
+      setSyncRequestPending(false);
+    }
+  }, [data?.resultSync?.running, syncRequestPending, load]);
+
+  const stopResultsRefresh = React.useCallback(async () => {
+    if (stopRequestPending || !data?.resultSync?.running || data.resultSync.stopping) return;
+    setStopRequestPending(true);
+    setRefreshError('');
+    try {
+      const response = await fetch('/api/results/cancel', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+      });
+      const result = await response.json() as { resultSync?: ResultSync; error?: string };
+      if (!response.ok) throw new Error(result.error || 'Could not stop results refresh');
+      setData((current) => current ? { ...current, resultSync: result.resultSync } : current);
+      await load();
+    } catch (error) {
+      setRefreshError(error instanceof Error ? error.message : 'Could not stop results refresh');
+    } finally {
+      setStopRequestPending(false);
+    }
+  }, [data?.resultSync?.running, data?.resultSync?.stopping, stopRequestPending, load]);
+
+  React.useEffect(() => {
+    if (!data?.resultSync?.running) return;
+    let active = true;
+    let polling = false;
+    const timer = window.setInterval(async () => {
+      if (polling) return;
+      polling = true;
+      try {
+        const response = await fetch('/api/results/status');
+        if (!response.ok) throw new Error('Could not check results update');
+        const sync = await response.json() as ResultSync;
+        if (!active) return;
+        setData((current) => current ? { ...current, resultSync: sync } : current);
+        setRefreshError('');
+        if (!sync.running) await load();
+      } catch (error) {
+        if (active) setRefreshError(error instanceof Error ? error.message : 'Could not check results update');
+      } finally {
+        polling = false;
+      }
+    }, 2000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [data?.resultSync?.running, load]);
+
+  const botAction = React.useCallback(async (botId: string, action: 'start' | 'stop', tradeBudget?: string, dailyLiveOrderLimit?: string) => {
     const selectedBot = data?.bots.find((bot) => bot.id === botId);
     setActionError('');
     if (action === 'start' && selectedBot?.supportsTradeBudget) {
@@ -713,16 +871,33 @@ function App() {
         return;
       }
     }
+    if (action === 'start' && selectedBot?.mode === 'live' && dailyLiveOrderLimit !== undefined) {
+      const value = dailyLiveOrderLimit.trim();
+      if (!/^\d+$/.test(value) || !Number.isSafeInteger(Number(value))) {
+        setActionError('Enter a whole-number daily order limit, or select No daily cap.');
+        return;
+      }
+    }
     const budgetLabel = `$${tradeBudget?.trim() ?? selectedBot?.tradeBudget ?? '1.00'}`;
+    const dailyLimit = Number(dailyLiveOrderLimit ?? selectedBot?.dailyLiveOrderLimit);
+    const dailyLimitLabel = Number.isNaN(dailyLimit)
+      ? 'Daily order limit not reported by the server.'
+      : dailyLimit === 0
+        ? 'NO DAILY ORDER CAP.'
+        : `Up to ${dailyLimit} live order attempts per UTC day, counted across both live bots.`;
     if (action === 'start' && selectedBot?.mode === 'live' && !window.confirm(
-      `Start ${selectedBot.name} with REAL MONEY? Up to ${budgetLabel} entry cost PER TRADE, plus exchange fees. Whole contracts; up to 30 live order attempts per UTC day.`,
+      `Start ${selectedBot.name} with REAL MONEY? Up to ${budgetLabel} entry cost PER TRADE, plus exchange fees. Whole contracts. ${dailyLimitLabel} No daily loss stop. One attempt per market.`,
     )) return;
 
     try {
       const response = await fetch(`/api/bots/${action}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ botId, ...(action === 'start' && tradeBudget !== undefined ? { tradeBudget } : {}) }),
+        body: JSON.stringify({
+          botId,
+          ...(action === 'start' && tradeBudget !== undefined ? { tradeBudget } : {}),
+          ...(action === 'start' && dailyLiveOrderLimit !== undefined ? { dailyLiveOrderLimit } : {}),
+        }),
       });
       const result = await response.json() as { message?: string; error?: string };
       if (!response.ok) throw new Error(result.message || result.error || 'Bot action failed');
@@ -762,7 +937,7 @@ function App() {
               <span className="muted-text">Risk</span>
             </nav>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
               className="surface-button inline-flex items-center gap-2 border px-3 py-2 text-sm font-medium"
@@ -770,9 +945,26 @@ function App() {
               {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
               {theme === 'dark' ? 'Light' : 'Dark'}
             </button>
-            <button onClick={load} className="surface-button inline-flex items-center gap-2 border px-3 py-2 text-sm font-medium">
-              <RefreshCw size={16} /> {updated || 'Refresh'}
+            <button
+              onClick={updateResults}
+              disabled={syncRequestPending || data.resultSync?.running}
+              title="Update fills, fees, settlements, and P/L"
+              className="surface-button inline-flex min-w-[152px] items-center justify-center gap-2 border px-3 py-2 text-sm font-medium disabled:cursor-wait disabled:opacity-70"
+            >
+              <RefreshCw size={16} className={syncRequestPending || data.resultSync?.running ? 'animate-spin' : ''} />
+              {syncRequestPending || data.resultSync?.running ? 'Updating...' : 'Update results'}
             </button>
+            {data.resultSync?.running && (
+              <button
+                onClick={stopResultsRefresh}
+                disabled={stopRequestPending || data.resultSync.stopping}
+                title="Stop only the results refresh; keep saved updates"
+                className="surface-button inline-flex min-w-[128px] items-center justify-center gap-2 border px-3 py-2 text-sm font-medium disabled:cursor-wait disabled:opacity-70"
+              >
+                <Square size={15} />
+                {stopRequestPending || data.resultSync.stopping ? 'Stopping...' : 'Stop refresh'}
+              </button>
+            )}
             <button className="surface-button inline-flex items-center gap-2 border px-3 py-2 text-sm font-medium md:hidden">
               <Menu size={16} />
             </button>
@@ -787,9 +979,10 @@ function App() {
               <AlertTriangle size={16} className="shrink-0" /> {actionError}
             </div>
           )}
+          <ResultSyncStatus sync={data.resultSync} pending={syncRequestPending} error={refreshError} />
           <BotWorkspace active={activeTab} data={data} onAction={botAction} />
           <div className="muted-text flex items-center gap-2 pb-4 pt-2 text-xs">
-            <Activity size={14} /> Auto-refreshes every 5 seconds.
+            <Activity size={14} /> {updated ? `Dashboard updated ${updated}.` : 'Auto-refreshes every 5 seconds.'}
           </div>
         </section>
       </main>

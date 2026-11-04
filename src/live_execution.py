@@ -5,6 +5,7 @@ import os
 import shutil
 import tempfile
 import uuid
+import warnings
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation, ROUND_CEILING
@@ -18,8 +19,18 @@ LIVE_TRADE_FILE = "data/live_trades.csv"
 LEGACY_LIVE_BOT_ID = "btc15_live"
 DUAL_LIVE_BOT_ID = "btc15_dual_live"
 DEFAULT_LIVE_TRADE_BUDGET = Decimal("1.00")
-MAX_LIVE_TRADES_PER_DAY = 30
-MAX_DAILY_LIVE_LOSS = Decimal(os.getenv("KALSHI_MAX_DAILY_LIVE_LOSS", "10"))
+
+
+def parse_daily_live_trade_limit(value):
+    text = str(value).strip()
+    if not text.isascii() or not text.isdecimal():
+        raise ValueError("Daily live order limit must be a whole number of 0 or greater (0 disables the cap)")
+    return int(text)
+
+
+MAX_LIVE_TRADES_PER_DAY = parse_daily_live_trade_limit(
+    os.getenv("KALSHI_MAX_LIVE_TRADES_PER_DAY", "30")
+)
 FIELDNAMES = [
     "timestamp",
     "trade_id",
@@ -137,37 +148,58 @@ def read_live_trade_rows():
             return list(csv.DictReader(file))
 
 
+def previous_live_trade(ticker):
+    for row in reversed(read_live_trade_rows()):
+        if row.get("ticker") == ticker:
+            return row
+    return None
+
+
 def has_live_traded(ticker):
-    initialize_live_trade_file()
-
-    with open(LIVE_TRADE_FILE, "r", newline="") as file:
-        reader = csv.DictReader(file)
-
-        for row in reader:
-            if row["ticker"] == ticker:
-                return True
-
-    return False
+    return previous_live_trade(ticker) is not None
 
 
 def parse_timestamp(value):
-    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    timestamp = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if timestamp.tzinfo is None:
+        raise ValueError("Live timestamp is missing a timezone")
+    return timestamp.astimezone(timezone.utc)
+
+
+def quarantined_non_order_fragment(row):
+    return (
+        str(row.get("error", "")).startswith("Malformed legacy row")
+        and row.get("side") not in ("YES", "NO")
+        and not any(row.get(field) for field in (
+            "order_id", "client_order_id", "contracts", "submitted_count", "filled_count",
+        ))
+        and not any(str(value).startswith("KXBTC15M-") for value in row.values())
+    )
 
 
 def live_rows_for_day(day, *, now=None):
-    initialize_live_trade_file()
-
     rows = []
-    with open(LIVE_TRADE_FILE, "r", newline="") as file:
-        reader = csv.DictReader(file)
-
-        for row in reader:
-            if not row.get("timestamp"):
+    ignored_fragments = 0
+    for line_number, row in enumerate(read_live_trade_rows(), 2):
+        try:
+            timestamp = parse_timestamp(row.get("timestamp") or "")
+        except (TypeError, ValueError) as exc:
+            # Keep quarantined junk in the ledger, but never guess an order's date.
+            if quarantined_non_order_fragment(row):
+                ignored_fragments += 1
                 continue
+            raise RuntimeError(
+                f"Live trading blocked: invalid timestamp at ledger row {line_number}; reconcile this order before trading"
+            ) from exc
+        if timestamp.date() == day:
+            rows.append(row)
 
-            timestamp = parse_timestamp(row["timestamp"])
-            if timestamp.date() == day:
-                rows.append(row)
+    if ignored_fragments:
+        warnings.warn(
+            f"Ignoring {ignored_fragments} quarantined non-order fragments in live ledger; original records retained",
+            RuntimeWarning,
+            stacklevel=2,
+        )
 
     return rows
 
@@ -182,9 +214,17 @@ def realized_live_profit_loss_today(*, now=None):
     total = Decimal("0")
 
     for row in live_rows_for_day(now.date(), now=now):
+        if str(row.get("error", "")).startswith("Malformed legacy row"):
+            continue
         profit_loss = row.get("profit_loss")
         if profit_loss not in (None, ""):
-            total += Decimal(str(profit_loss))
+            try:
+                amount = Decimal(str(profit_loss))
+                if not amount.is_finite():
+                    raise ValueError("Non-finite P/L")
+            except (InvalidOperation, ValueError) as exc:
+                raise RuntimeError("Live trading blocked: invalid recorded P/L; reconcile the live ledger") from exc
+            total += amount
 
     return total
 
@@ -192,11 +232,13 @@ def realized_live_profit_loss_today(*, now=None):
 def validate_live_risk_limits(*, now=None):
     now = now or datetime.now(timezone.utc)
 
-    if live_trade_count_today(now=now) >= MAX_LIVE_TRADES_PER_DAY:
-        raise RuntimeError("Daily live trade limit reached")
+    if MAX_LIVE_TRADES_PER_DAY > 0 and live_trade_count_today(now=now) >= MAX_LIVE_TRADES_PER_DAY:
+        raise RuntimeError(
+            f"Daily live trade limit reached ({MAX_LIVE_TRADES_PER_DAY} attempts per UTC day)"
+        )
 
-    if realized_live_profit_loss_today(now=now) <= -MAX_DAILY_LIVE_LOSS:
-        raise RuntimeError("Daily live loss limit reached")
+    # Still reject corrupt recorded amounts, but do not cap realized losses.
+    realized_live_profit_loss_today(now=now)
 
 
 def normalize_live_entry_price(entry_price):
@@ -334,7 +376,14 @@ def place_live_trade(
 
     initialize_live_trade_file()
 
-    if has_live_traded(ticker):
+    prior = previous_live_trade(ticker)
+    if prior is not None:
+        print(
+            f"LIVE ENTRY SKIPPED | {ticker} | already attempted by "
+            f"{prior.get('bot_id') or LEGACY_LIVE_BOT_ID} | "
+            f"{live_fill_status(prior)} | not retrying this market",
+            flush=True,
+        )
         return False
 
     validate_live_risk_limits()
@@ -396,8 +445,12 @@ def place_live_trade(
         )
     except Exception as exc:
         failed_row = dict(base_row)
-        failed_row["status"] = "SUBMISSION_UNKNOWN"
+        response = getattr(exc, "response", None)
+        status_code = getattr(response, "status_code", None)
+        rejected = isinstance(status_code, int) and 400 <= status_code < 500 and status_code not in (408, 409, 429)
+        failed_row["status"] = "REJECTED" if rejected else "SUBMISSION_UNKNOWN"
         failed_row["error"] = str(exc)
+        failed_row["fill_status"] = live_fill_status(failed_row)
         replace_live_trade_row(failed_row)
         raise
 
@@ -408,6 +461,12 @@ def place_live_trade(
     completed_row["fill_status"] = live_fill_status(completed_row)
     completed_row["response"] = json.dumps(response, sort_keys=True)
     replace_live_trade_row(completed_row)
+    print(
+        f"LIVE ORDER {completed_row['fill_status']} | {ticker} | "
+        f"requested={contracts} | filled={completed_row['filled_count'] or 'unverified'} | "
+        f"order={completed_row['order_id'] or 'unverified'}",
+        flush=True,
+    )
 
     return True
 
@@ -449,13 +508,17 @@ def apply_order_fills(row, fills):
     row["sync_error"] = "" if complete_fees else "Fill fees unavailable; net P/L pending"
 
 
-def update_live_trade_results(get_market_result, *, get_fills_fn=get_order_fills):
+def update_live_trade_results(
+    get_market_result, *, get_fills_fn=get_order_fills, on_error=None,
+    should_stop=None, on_progress=None,
+):
     rows = read_live_trade_rows()
-    updates = {}
     results = {}
     updated_count = 0
 
     for row in rows:
+        if should_stop is not None and should_stop():
+            break
         if row.get("error"):
             continue
         if row.get("pnl_basis") == "ACTUAL" and row.get("profit_loss") not in (None, ""):
@@ -469,6 +532,8 @@ def update_live_trade_results(get_market_result, *, get_fills_fn=get_order_fills
             if not fills and (live_filled_count(row) or Decimal("0")) > 0:
                 raise ValueError("Recorded fill not found in exchange history; P/L unverified")
             apply_order_fills(row, fills)
+            if row["sync_error"] and on_error is not None:
+                on_error(f"Live order {row['order_id']}: {row['sync_error']}")
             row["profit_loss"] = ""
             row["correct"] = ""
             row["pnl_basis"] = ""
@@ -478,32 +543,53 @@ def update_live_trade_results(get_market_result, *, get_fills_fn=get_order_fills
                 row["pnl_basis"] = "NO_FILL"
             else:
                 ticker = row["ticker"]
-                if ticker not in results:
+                if should_stop is not None and should_stop():
+                    result = None
+                elif ticker in results:
+                    result = results[ticker]
+                else:
                     results[ticker] = get_market_result(ticker)
-                result = results[ticker]
+                    result = results[ticker]
                 if result in ("YES", "NO") and row["fees_paid"] != "":
                     row["actual_result"] = result
                     row["profit_loss"] = calculate_profit_loss(row, result)
                     row["correct"] = str(row["side"] == result)
                     row["pnl_basis"] = "ACTUAL"
-                    updated_count += 1
         except Exception as exc:
             # A failed lookup must not turn an unknown fill into a fabricated P/L.
             row = original.copy()
             row["sync_error"] = str(exc)
-            print(f"Could not reconcile live order {row['order_id']}: {exc}", flush=True)
+            message = f"Could not reconcile live order {row['order_id']}: {exc}"
+            print(message, flush=True)
+            if on_error is not None:
+                on_error(message)
 
+        settled = 0
         if row != original:
-            updates[row["trade_id"]] = row
-
-    if updates:
-        # Merge after network requests so newly appended orders are preserved.
-        with live_ledger_lock():
-            with open(LIVE_TRADE_FILE, "r", newline="") as file:
-                current_rows = list(csv.DictReader(file))
-            _write_live_trade_rows([
-                updates.get(row.get("trade_id"), row) for row in current_rows
-            ])
+            # Commit each check before starting another exchange lookup.
+            with live_ledger_lock():
+                with open(LIVE_TRADE_FILE, "r", newline="") as file:
+                    current_rows = list(csv.DictReader(file))
+                saved = False
+                for index, current in enumerate(current_rows):
+                    if current.get("trade_id") != row["trade_id"]:
+                        continue
+                    if current.get("pnl_basis") == "ACTUAL" and current.get("profit_loss") not in (None, ""):
+                        continue
+                    current_rows[index] = row
+                    saved = True
+                if saved:
+                    _write_live_trade_rows(current_rows)
+                    settled = int(row.get("pnl_basis") == "ACTUAL")
+            if saved:
+                print(
+                    f"Updated live order {row['order_id']} | fees: {row['fees_paid'] or 'pending'} | "
+                    f"net P/L: {row['profit_loss'] or 'pending'}",
+                    flush=True,
+                )
+        updated_count += settled
+        if on_progress is not None:
+            on_progress(settled)
 
     return updated_count
 

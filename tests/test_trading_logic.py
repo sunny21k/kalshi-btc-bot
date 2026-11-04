@@ -371,25 +371,26 @@ class LiveExecutionTests(unittest.TestCase):
                 create_order_fn=lambda ticker, **kwargs: {},
             )
 
-    def test_live_risk_blocks_after_daily_loss_limit(self):
+    def test_live_orders_are_not_blocked_by_recorded_daily_losses(self):
         live_execution.write_live_trade_rows([
             self.live_row(
                 ticker="KXBTC15M-LOSS",
                 actual_result="NO",
-                profit_loss="-10.0000",
+                profit_loss="-100.1469",
                 correct="False",
             )
         ])
 
-        with self.assertRaisesRegex(RuntimeError, "Daily live loss limit reached"):
-            live_execution.place_live_trade(
-                ticker="KXBTC15M-LIVE-NEW",
-                side="YES",
-                prediction="UP",
-                entry_price=Decimal("0.80"),
-                contracts=1,
-                create_order_fn=lambda ticker, **kwargs: {},
-            )
+        recorded = live_execution.place_live_trade(
+            ticker="KXBTC15M-LIVE-NEW",
+            side="YES",
+            prediction="UP",
+            entry_price=Decimal("0.80"),
+            contracts=1,
+            create_order_fn=lambda ticker, **kwargs: {"order_id": "test", "fill_count": "0.00"},
+        )
+        self.assertTrue(recorded)
+        self.assertEqual("-100.1469", self.read_rows()[0]["profit_loss"])
 
     def test_live_risk_ignores_previous_day_rows(self):
         yesterday = datetime.now(timezone.utc) - timedelta(days=1)

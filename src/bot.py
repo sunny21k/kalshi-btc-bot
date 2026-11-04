@@ -14,6 +14,7 @@ from data_logger import log_market_data
 from live_execution import (
     DEFAULT_LIVE_TRADE_BUDGET,
     LEGACY_LIVE_BOT_ID,
+    MAX_LIVE_TRADES_PER_DAY,
     normalize_live_entry_price,
     place_live_trade,
 )
@@ -174,6 +175,13 @@ def main(
     print(f"Starting {bot_name}...")
     print("Mode: LIVE MONEY" if live_enabled else "Mode: PAPER")
     print(f"Entry budget: ${trade_budget:.2f} per trade, before fees (whole contracts)")
+    if live_enabled:
+        daily_limit = (
+            f"{MAX_LIVE_TRADES_PER_DAY} attempts per UTC day"
+            if MAX_LIVE_TRADES_PER_DAY else "disabled"
+        )
+        print(f"Daily live order limit: {daily_limit}")
+        print("Daily live loss stop: disabled")
     if not live_enabled:
         print(f"Paper test: {'/'.join(paper_sides)} trades only")
         if paper_trade_file is not None:

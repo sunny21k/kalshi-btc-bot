@@ -1,8 +1,12 @@
 import csv
+import fcntl
 import os
+import tempfile
 import uuid
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from decimal import Decimal
+from pathlib import Path
 
 from trade_sizing import contracts_for_budget as size_contracts
 
@@ -29,31 +33,67 @@ FIELDNAMES = [
 ]
 
 
+@contextmanager
+def paper_ledger_lock(trade_file=None):
+    trade_file = trade_file or TRADE_FILE
+    Path(trade_file).parent.mkdir(parents=True, exist_ok=True)
+    with open(f"{trade_file}.lock", "a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
+
+
 def initialize_trade_file(trade_file=None):
     trade_file = trade_file or TRADE_FILE
+    with paper_ledger_lock(trade_file):
+        _initialize_trade_file(trade_file)
+
+
+def _initialize_trade_file(trade_file):
     os.makedirs(os.path.dirname(trade_file) or ".", exist_ok=True)
 
     if not os.path.exists(trade_file) or os.path.getsize(trade_file) == 0:
-        write_trade_rows([], trade_file=trade_file)
+        _write_trade_rows([], trade_file)
         return
 
     with open(trade_file, "r", newline="") as file:
         reader = csv.DictReader(file)
         rows = list(reader)
 
-    if reader.fieldnames == FIELDNAMES:
+    if reader.fieldnames == FIELDNAMES and all(row.get("trade_id") for row in rows):
         return
 
     migrated_rows = [normalize_trade_row(row) for row in rows]
-    write_trade_rows(migrated_rows, trade_file=trade_file)
+    _write_trade_rows(migrated_rows, trade_file)
 
 
 def write_trade_rows(rows, trade_file=None):
     trade_file = trade_file or TRADE_FILE
-    with open(trade_file, "w", newline="") as file:
-        writer = csv.DictWriter(file, fieldnames=FIELDNAMES)
-        writer.writeheader()
-        writer.writerows(rows)
+    with paper_ledger_lock(trade_file):
+        _write_trade_rows(rows, trade_file)
+
+
+def _write_trade_rows(rows, trade_file):
+    fd, temporary_path = tempfile.mkstemp(dir=Path(trade_file).parent, prefix=".paper-trades-")
+    try:
+        with os.fdopen(fd, "w", newline="") as file:
+            writer = csv.DictWriter(file, fieldnames=FIELDNAMES)
+            writer.writeheader()
+            writer.writerows(rows)
+        os.replace(temporary_path, trade_file)
+    finally:
+        if os.path.exists(temporary_path):
+            os.unlink(temporary_path)
+
+
+def read_trade_rows(trade_file=None):
+    trade_file = trade_file or TRADE_FILE
+    with paper_ledger_lock(trade_file):
+        _initialize_trade_file(trade_file)
+        with open(trade_file, "r", newline="") as file:
+            return list(csv.DictReader(file))
 
 
 def normalize_trade_row(row):
@@ -130,17 +170,7 @@ def side_from_prediction(prediction):
 
 
 def has_traded(ticker, trade_file=None):
-    trade_file = trade_file or TRADE_FILE
-    initialize_trade_file(trade_file=trade_file)
-
-    with open(trade_file, "r", newline="") as file:
-        reader = csv.DictReader(file)
-
-        for row in reader:
-            if row["ticker"] == ticker:
-                return True
-
-    return False
+    return any(row["ticker"] == ticker for row in read_trade_rows(trade_file))
 
 
 def contracts_for_budget(entry_price, budget=PAPER_TRADE_BUDGET):
@@ -161,10 +191,6 @@ def record_paper_trade(
     trade_file=None,
 ):
     trade_file = trade_file or TRADE_FILE
-    initialize_trade_file(trade_file=trade_file)
-
-    if has_traded(ticker, trade_file=trade_file):
-        return False
 
     entry_price = Decimal(str(entry_price))
     model_probability = Decimal(str(model_probability))
@@ -172,9 +198,12 @@ def record_paper_trade(
     contracts = int(contracts)
     cost = entry_price * contracts
 
-    with open(trade_file, "a", newline="") as file:
-        writer = csv.DictWriter(file, fieldnames=FIELDNAMES)
-        writer.writerow({
+    with paper_ledger_lock(trade_file):
+        _initialize_trade_file(trade_file)
+        with open(trade_file, "r", newline="") as file:
+            if any(row["ticker"] == ticker for row in csv.DictReader(file)):
+                return False
+        row = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "trade_id": f"paper-{uuid.uuid4()}",
             "ticker": ticker,
@@ -194,22 +223,23 @@ def record_paper_trade(
             "actual_result": "",
             "profit_loss": "",
             "correct": "",
-        })
+        }
+        with open(trade_file, "a", newline="") as file:
+            csv.DictWriter(file, fieldnames=FIELDNAMES).writerow(row)
 
     return True
 
 
-def update_paper_trade_results(get_market_result, *, trade_file=None):
+def update_paper_trade_results(
+    get_market_result, *, trade_file=None, on_error=None, should_stop=None, on_progress=None,
+):
     trade_file = trade_file or TRADE_FILE
-    initialize_trade_file(trade_file=trade_file)
-
-    with open(trade_file, "r", newline="") as file:
-        reader = csv.DictReader(file)
-        rows = list(reader)
-
+    rows = read_trade_rows(trade_file)
     updated_count = 0
 
     for row in rows:
+        if should_stop is not None and should_stop():
+            break
         if row.get("actual_result"):
             continue
 
@@ -217,17 +247,36 @@ def update_paper_trade_results(get_market_result, *, trade_file=None):
         if not ticker:
             continue
 
-        result = get_market_result(ticker)
-        if result not in ["YES", "NO"]:
-            continue
-
-        row["actual_result"] = result
-        row["profit_loss"] = calculate_profit_loss(row, result)
-        row["correct"] = str(row.get("side") == result)
-        updated_count += 1
-
-    if updated_count:
-        write_trade_rows(rows, trade_file=trade_file)
+        settled = 0
+        try:
+            result = get_market_result(ticker)
+            if result in ("YES", "NO"):
+                update = {
+                    "actual_result": result,
+                    "profit_loss": calculate_profit_loss(row, result),
+                    "correct": str(row.get("side") == result),
+                }
+                # Lookups run without the lock; only the saved row is merged.
+                with paper_ledger_lock(trade_file):
+                    with open(trade_file, "r", newline="") as file:
+                        current_rows = list(csv.DictReader(file))
+                    for current in current_rows:
+                        if current.get("trade_id") == row["trade_id"] and not current.get("actual_result"):
+                            current.update(update)
+                            settled += 1
+                    if settled:
+                        _write_trade_rows(current_rows, trade_file)
+                if settled:
+                    print(f"Settled paper trade {ticker} | P/L: {update['profit_loss']}", flush=True)
+        except Exception as exc:
+            settled = 0
+            message = f"Could not settle paper trade {ticker}: {exc}"
+            print(message, flush=True)
+            if on_error is not None:
+                on_error(message)
+        updated_count += settled
+        if on_progress is not None:
+            on_progress(settled)
 
     return updated_count
 

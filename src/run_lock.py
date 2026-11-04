@@ -13,6 +13,8 @@ class RunLock:
         try:
             fcntl.flock(self.file, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as exc:
+            self.file.close()
+            self.file = None
             raise RuntimeError(f"{self.path} is already locked") from exc
 
         self.file.seek(0)
