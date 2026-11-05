@@ -9,6 +9,7 @@ from websocket import WebSocketException
 
 from bot import get_current_market, get_seconds_remaining, get_yes_quote
 from btc_feed import get_btc_price
+from bot_telemetry import BotTelemetry
 from kalshi_api import get_orderbook
 from run_lock import RunLock
 from scalp_execution import close_position, initialize_scalp_file, open_position
@@ -64,6 +65,7 @@ def closed_candles(tick_store, *, now, seconds, limit=20):
 
 def main():
     initialize_scalp_file()
+    telemetry = BotTelemetry("scalp_paper", poll_seconds=POLL_SECONDS)
 
     print("Starting PAPER scalp bot...")
     print("This bot does not place live orders.")
@@ -84,9 +86,14 @@ def main():
     retry_delay = 1
 
     while True:
+        source = "BTC feed"
         try:
             try:
+                telemetry.stage("Fetching BTC price")
                 btc_price = Decimal(str(get_btc_price()))
+                telemetry.price(btc_price)
+                source = "Kalshi"
+                telemetry.stage("Fetching market and order book")
                 market = get_current_market()
                 orderbook = get_orderbook(market["ticker"]) if market is not None else None
             except (
@@ -96,6 +103,7 @@ def main():
                 TimeoutError,
                 ssl.SSLError,
             ) as exc:
+                telemetry.failure(exc, source=source, api=True)
                 print(
                     f"Market data error: {type(exc).__name__}: {exc} | "
                     f"retrying in {retry_delay}s",
@@ -116,6 +124,8 @@ def main():
             append_tick(tick_store, now, btc_price)
 
             if market is None:
+                telemetry.market(ticker=None)
+                telemetry.decide("WAIT", "No active market found")
                 print("No active market.")
                 time.sleep(float(POLL_SECONDS))
                 continue
@@ -123,6 +133,14 @@ def main():
             ticker = market["ticker"]
             yes_bid, yes_ask, no_bid, no_ask, spread = get_yes_quote(orderbook, market)
             seconds_remaining = get_seconds_remaining(market)
+            target = market.get("floor_strike")
+            telemetry.market(
+                ticker=ticker, closeAt=market.get("close_time"), secondsRemaining=seconds_remaining,
+                targetPrice=target,
+                priceDifference=(btc_price - Decimal(str(target)) if target not in (None, "") else None),
+                yesAsk=yes_ask, noAsk=no_ask, spread=spread,
+            )
+            source = "Bot"
             candles_5s = closed_candles(tick_store, now=now, seconds=5)
             candles_15s = closed_candles(tick_store, now=now, seconds=15)
 
@@ -134,6 +152,7 @@ def main():
                 print(f"Time left: {int(seconds_remaining)}s")
 
             if yes_bid is None:
+                telemetry.decide("WAIT", "Order book quote unavailable")
                 print("Quote unavailable.")
                 time.sleep(float(POLL_SECONDS))
                 continue
@@ -189,6 +208,7 @@ def main():
                         allowed_sides=ALLOWED_SIDES,
                     )
                 print(f"Decision: {entry['decision']} | {entry['reason']}")
+                telemetry.decide(entry["decision"], entry["reason"], side=entry.get("side", ""))
 
                 if entry["decision"] in ("BUY YES", "BUY NO"):
                     position = open_position(
@@ -203,6 +223,7 @@ def main():
                         f"OPEN {position['side']} x{CONTRACTS} "
                         f"@ ${position['entry_price']:.4f}"
                     )
+                    telemetry.decide("OPEN", "Paper position opened; monitoring exits", side=position["side"])
             else:
                 exit_signal = choose_scalp_exit(
                     position,
@@ -214,6 +235,7 @@ def main():
                     stop_loss=STOP_LOSS,
                 )
                 position["peak_profit"] = exit_signal["peak_profit"]
+                telemetry.decide("HOLD", exit_signal["reason"], side=position["side"])
                 print(
                     f"Position: {position['side']} x{position['contracts']} "
                     f"entry ${position['entry_price']:.4f} | "
@@ -231,14 +253,19 @@ def main():
                         reason=exit_signal["reason"],
                     )
                     print("CLOSED position.")
+                    telemetry.decide("CLOSED", exit_signal["reason"], side=position["side"])
                     position = None
                     cooldown_until = now + COOLDOWN_SECONDS
 
             time.sleep(float(POLL_SECONDS))
 
         except KeyboardInterrupt:
+            telemetry.stop()
             print("\nScalp bot stopped.")
             break
+        except Exception as exc:
+            telemetry.failure(exc, source=source)
+            raise
 
 
 if __name__ == "__main__":

@@ -5,6 +5,8 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 from btc_feed import get_btc_price
+from bot_telemetry import BotTelemetry
+from requests.exceptions import RequestException
 from kalshi_api import get_markets_for_series, get_orderbook
 from strategy import (
     calculate_btc_change,
@@ -171,6 +173,11 @@ def main(
             str(DEFAULT_LIVE_TRADE_BUDGET if live_enabled else PAPER_TRADE_BUDGET),
         )
     trade_budget = parse_trade_budget(trade_budget)
+    telemetry = BotTelemetry(
+        live_bot_id if live_enabled else ("btc15_dual_paper" if paper_trade_file else "btc15_paper"),
+        poll_seconds=POLL_SECONDS,
+        settings={"dailyLimit": MAX_LIVE_TRADES_PER_DAY if live_enabled else None, "tradeBudget": str(trade_budget)},
+    )
 
     print(f"Starting {bot_name}...")
     print("Mode: LIVE MONEY" if live_enabled else "Mode: PAPER")
@@ -194,23 +201,29 @@ def main(
     previous_entry_prices = {}
 
     while True:
-
+        source = "BTC feed"
         try:
-
+            telemetry.stage("Fetching BTC price")
             btc_price = Decimal(
                 str(get_btc_price())
             )
+            telemetry.price(btc_price)
             recent_btc_prices.append(btc_price)
 
+            source = "Kalshi"
+            telemetry.stage("Fetching active market")
             market = get_current_market()
 
             if market is None:
+                telemetry.market(ticker=None)
+                telemetry.decide("WAIT", "No active market found")
                 print("No active market found.")
                 time.sleep(POLL_SECONDS)
                 continue
 
             ticker = market["ticker"]
 
+            telemetry.stage("Fetching order book")
             orderbook = get_orderbook(ticker)
 
             (
@@ -237,6 +250,13 @@ def main(
             )
 
             target_price = market.get("floor_strike")
+            telemetry.market(
+                ticker=ticker, closeAt=market.get("close_time"),
+                secondsRemaining=seconds_remaining, targetPrice=target_price,
+                priceDifference=(btc_price - Decimal(str(target_price)) if target_price not in (None, "") else None),
+                yesAsk=yes_ask, noAsk=no_ask, spread=spread,
+            )
+            source = "Bot"
             price_difference_for_confirmation = None
             confirmation_key = None
 
@@ -301,6 +321,10 @@ def main(
             )
             signal = trade_signal["prediction"]
             decision = trade_signal["decision"]
+            telemetry.decide(
+                decision, trade_signal["reason"], side=trade_signal.get("side", ""),
+                strategy=trade_signal.get("strategy_name", ""),
+            )
             entry_price = trade_signal["entry_price"]
             price_difference = trade_signal["price_difference"]
             model_probability = entry_price or Decimal("0.50")
@@ -418,6 +442,8 @@ def main(
 
                 if decision in ("BUY YES", "BUY NO"):
                     side = trade_signal["side"]
+                    source = "Execution"
+                    telemetry.stage("Submitting live order" if live_enabled else "Recording paper entry")
 
                     if live_enabled:
 
@@ -452,6 +478,12 @@ def main(
                             trade_file=paper_trade_file,
                         )
 
+                    telemetry.decide(
+                        "SUBMITTED" if live_enabled and trade_recorded else "RECORDED" if trade_recorded else "BLOCKED",
+                        ("Order attempt recorded; see recent orders for its fill status" if live_enabled else "Paper entry recorded")
+                        if trade_recorded else "Already entered or attempted this market; one entry per market",
+                        side=side, strategy=trade_signal.get("strategy_name", ""),
+                    )
                     if trade_recorded:
 
                         print()
@@ -486,12 +518,13 @@ def main(
             time.sleep(POLL_SECONDS)
 
         except KeyboardInterrupt:
-
+            telemetry.stop()
             print("\nBot stopped.")
             break
 
         except Exception as e:
-
+            api_error = source in ("BTC feed", "Kalshi") or isinstance(e, (RequestException, ConnectionError, TimeoutError))
+            telemetry.failure(e, source="Kalshi" if api_error and source == "Execution" else source, api=api_error)
             print(f"Error: {e}")
 
             time.sleep(POLL_SECONDS)

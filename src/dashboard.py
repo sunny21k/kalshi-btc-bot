@@ -22,7 +22,10 @@ from live_execution import (
     live_filled_count,
     live_fill_status,
     parse_daily_live_trade_limit,
+    parse_timestamp,
+    quarantined_non_order_fragment,
 )
+from bot_telemetry import runtime_status
 from paper_execution import DUAL_TRADE_FILE, PAPER_TRADE_BUDGET
 from prediction_tracker import refresh_results
 from performance_analytics import build_performance
@@ -274,14 +277,19 @@ def scalp_stats(rows):
 
 def build_payload():
     live_rows = read_csv(LIVE_FILE)
+    paper_rows = read_csv(PAPER_FILE)
+    dual_paper_rows = read_csv(DUAL_PAPER_FILE)
     return {
-        "paper": trade_stats(read_csv(PAPER_FILE), cost_field="cost"),
-        "dualPaper": trade_stats(read_csv(DUAL_PAPER_FILE), cost_field="cost"),
+        "paper": trade_stats(paper_rows, cost_field="cost"),
+        "dualPaper": trade_stats(dual_paper_rows, cost_field="cost"),
         "live": live_trade_stats(live_rows, bot_id=LEGACY_LIVE_BOT_ID),
         "dualLive": live_trade_stats(live_rows, bot_id=DUAL_LIVE_BOT_ID),
         "scalp": scalp_stats(read_csv(SCALP_FILE)),
         "shadow": shadow_stats(read_csv(SHADOW_FILE)),
-        "bots": bot_statuses(),
+        "bots": bot_statuses(ledger_rows={
+            "btc15_paper": paper_rows, "btc15_dual_paper": dual_paper_rows,
+            "btc15_live": live_rows, DUAL_LIVE_BOT_ID: live_rows,
+        }),
         "resultSync": result_sync_status(),
     }
 
@@ -354,12 +362,66 @@ def process_running(process):
     return process is not None and process.poll() is None
 
 
-def bot_statuses():
+def entry_diagnostics(runtime, rows, *, live=False, daily_limit=None, now=None):
+    """Explain observed blockers without calling an exchange or changing a ledger."""
+    now = now or datetime.now(timezone.utc)
+    now = now.astimezone(timezone.utc)
+    blockers = []
+    runtime["dailyAttempts"] = None
+    runtime["dailyLimit"] = daily_limit
+    if live:
+        runtime["dailyLimit"] = (runtime.get("settings") or {}).get("dailyLimit", daily_limit)
+        if not isinstance(runtime["dailyLimit"], int) or isinstance(runtime["dailyLimit"], bool) or runtime["dailyLimit"] < 0:
+            runtime["dailyLimit"] = daily_limit
+        attempts = 0
+        for row in rows:
+            try:
+                day = parse_timestamp(row.get("timestamp") or "").date()
+            except (TypeError, ValueError, OverflowError):
+                if quarantined_non_order_fragment(row):
+                    continue
+                blockers.append("Live ledger has an invalid timestamp; daily attempts cannot be verified")
+                break
+            attempts += day == now.date()
+        else:
+            runtime["dailyAttempts"] = attempts
+            limit = runtime["dailyLimit"]
+            if limit and attempts >= limit:
+                blockers.append(f"Daily live cap reached: {attempts}/{limit} attempts (UTC)")
+    ticker = (runtime.get("market") or {}).get("ticker")
+    prior = next((row for row in reversed(rows) if row.get("ticker") == ticker), None) if ticker else None
+    if prior:
+        if live:
+            status = prior.get("fill_status") or prior.get("status") or "unverified"
+            blockers.append(f"Already attempted this market ({status}); no second live entry")
+        else:
+            blockers.append("Paper entry already recorded for this market; one entry per market")
+    decision = runtime.get("decision") or {}
+    if decision.get("action") in ("WAIT", "BLOCKED", "ERROR") and decision.get("reason"):
+        blockers.append(decision["reason"])
+    if runtime["state"] == "stopped":
+        blockers = ["Bot is stopped. Start it to evaluate new entries."]
+    elif runtime["state"] == "starting":
+        blockers = ["Collecting the first BTC price and market update."] if runtime.get("heartbeatAgeSeconds") is not None else [
+            "Waiting for a heartbeat. If this bot was already running before the update, restart it to enable diagnostics."
+        ]
+    elif runtime["state"] == "stale":
+        blockers = ["Updates are stale; the last decision is no longer current."] + blockers
+    runtime["blockers"] = list(dict.fromkeys(blockers))
+    return runtime
+
+
+def bot_statuses(*, ledger_rows=None):
     statuses = []
 
     for bot_id, config in BOTS.items():
         process = BOT_PROCESSES.get(bot_id)
         running = process_running(process)
+        daily_limit = BOT_DAILY_LIVE_LIMITS.get(bot_id, MAX_LIVE_TRADES_PER_DAY)
+        runtime = runtime_status(
+            bot_id, running=running, pid=process.pid if process is not None else None,
+            managed=process is not None,
+        )
         statuses.append({
             "id": bot_id,
             "name": config["name"],
@@ -368,6 +430,10 @@ def bot_statuses():
             "running": running,
             "pid": process.pid if running else None,
             "returnCode": None if process is None or running else process.poll(),
+            "runtime": entry_diagnostics(
+                runtime, (ledger_rows or {}).get(bot_id, []),
+                live=config["mode"] == "live", daily_limit=daily_limit if config["mode"] == "live" else None,
+            ),
             "logFile": str(log_path(bot_id).relative_to(ROOT)),
             "supportsTradeBudget": "budgetEnv" in config,
             "tradeBudget": (

@@ -105,6 +105,26 @@ bundle is lazy-loaded separately from the bot controls.
 Run analytics tests with `python -m unittest discover -s tests` and, from
 `dashboard`, `npm test`. Rebuild the frontend with `npm run build` after changes.
 
+## Entry Reasons And Bot Health
+
+Each bot's control panel includes **Why no trade?** and **Bot health**. Entry
+reasons come from the bot's actual latest strategy evaluation. The dashboard
+also checks the local ledger for an existing entry in that market and the
+shared live attempt cap (including rejected and unfilled attempts, by UTC day).
+Scalp observations show candle-history waits, cooldowns, and open-position exits.
+The context row shows time left, BTC distance from target, asks, and spread.
+
+Health shows the process, heartbeat, last received BTC price and its age, current
+activity, and the latest API error. Recovered errors remain available to inspect.
+A running process with an old heartbeat or price is marked stale, and old
+decisions are labelled as historical. Diagnostics are local atomic snapshots in
+`data/bot_status/`; they do not change strategy rules, make exchange requests,
+or modify trade ledgers. A failed snapshot write does not stop trading.
+Bots started in a terminal report health too; stop those in their own terminal.
+
+After installing this feature, **restart the dashboard and each bot once** to
+load the new code. Refreshing the browser alone cannot enable bot telemetry.
+
 ## Refresh Results
 
 Click **Update results** in the dashboard header to check actual live fills,

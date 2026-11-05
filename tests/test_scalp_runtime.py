@@ -21,6 +21,7 @@ class ScalpRuntimeTests(unittest.TestCase):
     def setUp(self):
         patcher = patch.multiple(
             scalp_bot,
+            BotTelemetry=DEFAULT,
             initialize_scalp_file=DEFAULT,
             get_btc_price=DEFAULT,
             get_current_market=DEFAULT,
@@ -85,6 +86,10 @@ class ScalpRuntimeTests(unittest.TestCase):
         )
         self.mocks["open_position"].assert_called_once()
         self.assertIn("Market data connection restored.", output.getvalue())
+        reporter = self.mocks["BotTelemetry"].return_value
+        self.assertEqual(7, reporter.failure.call_count)
+        reporter.price.assert_called_once_with(Decimal("81467.95"))
+        reporter.stop.assert_called_once()
 
     def test_orderbook_timeout_preserves_position_and_peak_until_exit(self):
         self.mocks["get_orderbook"].side_effect = [{}, {}, ReadTimeout("timed out"), {}]
@@ -140,6 +145,7 @@ class ScalpRuntimeTests(unittest.TestCase):
         with redirect_stdout(io.StringIO()):
             with self.assertRaisesRegex(ValueError, "invalid price"):
                 scalp_bot.main()
+        self.mocks["BotTelemetry"].return_value.failure.assert_called_once()
 
 
 if __name__ == "__main__":

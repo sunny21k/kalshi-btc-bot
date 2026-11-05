@@ -17,6 +17,8 @@ import {
 } from 'lucide-react';
 import './styles.css';
 import type { PerformanceData } from './performance';
+import { BotDiagnostics } from './BotDiagnostics';
+import type { BotRuntime } from './BotDiagnostics';
 
 const PerformancePanel = React.lazy(() => import('./PerformancePanel').then((module) => ({ default: module.PerformancePanel })));
 
@@ -109,6 +111,7 @@ type ResultSync = {
 };
 
 type BotStatus = {
+  runtime?: BotRuntime;
   id: string;
   name: string;
   mode: string;
@@ -326,7 +329,7 @@ function ShadowPanel({ shadow }: { shadow: ShadowStats }) {
   return (
     <section className="surface-card border p-4">
       <div className="mb-3 flex items-center gap-2">
-        <AlertTriangle size={16} className="text-amber-400" />
+        <AlertTriangle size={16} className="warning-text" />
         <h2 className="section-title text-sm font-semibold uppercase tracking-wide">Blocked Signals</h2>
       </div>
       <Metric label="Shadow Signals" value={shadow.total} />
@@ -381,8 +384,8 @@ function BotControls({ bots, onAction }: { bots?: BotStatus[]; onAction: (botId:
                   onClick={() => onAction(bot.id, 'start')}
                   className={`inline-flex items-center gap-1 rounded-md px-3 py-2 text-sm font-medium ${
                     bot.mode === 'live'
-                      ? 'bg-red-700 text-white hover:bg-red-800'
-                      : 'primary-button text-white'
+                      ? 'live-button'
+                      : 'primary-button'
                   }`}
                 >
                   <Play size={14} /> Start
@@ -423,6 +426,9 @@ function SingleBotControl({ bot, onAction }: { bot?: BotStatus; onAction: BotAct
     );
   }
 
+  const externalRunning = !bot.running && !!bot.runtime?.processAlive;
+  const running = bot.running || externalRunning;
+
   return (
     <section className="bot-control" aria-label={`${bot.name} controls`}>
       <header className="bot-control-heading">
@@ -431,8 +437,8 @@ function SingleBotControl({ bot, onAction }: { bot?: BotStatus; onAction: BotAct
           <h2>{bot.name}</h2>
           <span className="bot-control-mode">{bot.mode === 'live' ? 'Real money' : 'Paper only'}</span>
         </div>
-        <span className={`bot-control-status ${bot.running ? 'money-positive' : 'muted-text'}`}>
-          {bot.running ? `Running ${bot.pid ?? ''}` : 'Stopped'}
+        <span className={`bot-control-status ${running ? 'money-positive' : 'muted-text'}`}>
+          {bot.running ? `Running ${bot.pid ?? ''}` : externalRunning ? 'Running in terminal' : 'Stopped'}
         </span>
       </header>
       <div className="bot-control-body">
@@ -449,7 +455,7 @@ function SingleBotControl({ bot, onAction }: { bot?: BotStatus; onAction: BotAct
                 step="0.01"
                 value={budget}
                 onChange={(event) => setBudget(event.target.value)}
-                disabled={bot.running}
+                disabled={running}
                 className="surface-soft w-full min-w-0 border px-3 text-sm tabular-nums disabled:opacity-70"
               />
             </div>
@@ -465,7 +471,7 @@ function SingleBotControl({ bot, onAction }: { bot?: BotStatus; onAction: BotAct
                 step="1"
                 value={dailyLimit}
                 onChange={(event) => setDailyLimit(event.target.value)}
-                disabled={bot.running || noDailyCap}
+                disabled={running || noDailyCap}
                 className="surface-soft w-full min-w-0 border px-3 text-sm tabular-nums disabled:opacity-70"
               />
               <label className="bot-control-checkbox">
@@ -473,14 +479,14 @@ function SingleBotControl({ bot, onAction }: { bot?: BotStatus; onAction: BotAct
                   type="checkbox"
                   checked={noDailyCap}
                   onChange={(event) => setNoDailyCap(event.target.checked)}
-                  disabled={bot.running}
+                  disabled={running}
                 />
                 No daily cap
               </label>
             </div>
           )}
           <div className="bot-control-action">
-            {bot.running ? (
+            {externalRunning ? <button className="surface-button border px-3 py-2 text-xs muted-text" disabled title="Stop this bot in the terminal where it was started">Terminal control</button> : bot.running ? (
               <button
                 onClick={() => onAction(bot.id, 'stop')}
                 className="danger-button inline-flex items-center justify-center gap-2 border px-3 py-2 text-sm font-medium"
@@ -497,8 +503,8 @@ function SingleBotControl({ bot, onAction }: { bot?: BotStatus; onAction: BotAct
                 )}
                 className={`inline-flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium ${
                   bot.mode === 'live'
-                    ? 'bg-red-700 text-white hover:bg-red-800'
-                    : 'primary-button text-white'
+                    ? 'live-button'
+                    : 'primary-button'
                 }`}
               >
                 <Play size={15} /> Start
@@ -537,7 +543,7 @@ function BotTabs({ active, onChange, data }: { active: TabId; onChange: (tab: Ta
             <div className="flex items-center justify-between gap-2">
               <span className="font-semibold">{tab.label}</span>
               {tab.running !== undefined && (
-                <span className={`h-2.5 w-2.5 rounded-full ${tab.running ? 'bg-emerald-400' : 'bg-slate-500'}`} />
+                <span className={`h-2.5 w-2.5 rounded-full ${tab.running ? 'status-dot-running' : 'status-dot-stopped'}`} />
               )}
             </div>
             <div className="muted-text mt-1 text-xs">{tab.detail}</div>
@@ -699,6 +705,7 @@ function BotWorkspace({ active, data, onAction }: { active: TabId; data: Dashboa
         <BotPerformance key={active} data={stats.performance} />
         <div className="bot-overview">
           <SingleBotControl key={active} bot={botById[active]} onAction={onAction} />
+          <BotDiagnostics runtime={botById[active]?.runtime} />
           <TradePanel title={active === 'btc15_dual_paper' ? '15m YES/NO Paper Trading' : '15m Paper Trading'} stats={stats} />
         </div>
         <RecentTrades title="Recent Paper Trades" rows={stats.recent} />
@@ -714,6 +721,7 @@ function BotWorkspace({ active, data, onAction }: { active: TabId; data: Dashboa
         <BotPerformance key={active} data={stats.performance} />
         <div className="bot-overview">
           <SingleBotControl key={active} bot={botById[active]} onAction={onAction} />
+          <BotDiagnostics runtime={botById[active]?.runtime} />
           <TradePanel title={active === 'btc15_dual_live' ? '15m YES/NO Live Trading' : '15m Live Trading'} stats={stats} live />
         </div>
         <RecentTrades title="Recent Live Orders" rows={stats.recent} live />
@@ -729,6 +737,7 @@ function BotWorkspace({ active, data, onAction }: { active: TabId; data: Dashboa
         <BotPerformance key={active} data={data.scalp.performance} />
         <div className="bot-overview">
           <SingleBotControl bot={botById.scalp_paper} onAction={onAction} />
+          <BotDiagnostics runtime={botById.scalp_paper?.runtime} />
           <ScalpPanel stats={data.scalp} />
         </div>
         <ScalpTrades rows={data.scalp.recent} />
@@ -919,7 +928,7 @@ function App() {
   }, [theme]);
 
   if (!data) {
-    return <div className="p-6 text-slate-600">Loading dashboard...</div>;
+    return <div className="muted-heading p-6">Loading dashboard...</div>;
   }
 
   return (
@@ -928,7 +937,7 @@ function App() {
         <div className="mx-auto flex max-w-[1180px] flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-5">
             <div className="flex items-center gap-2">
-              <Gauge size={18} className="text-emerald-400" />
+              <Gauge size={18} className="accent-text" />
               <h1 className="text-lg font-semibold tracking-tight">Kalshi BTC</h1>
             </div>
             <nav className="hidden items-center gap-5 text-xs font-semibold uppercase tracking-[0.22em] md:flex">

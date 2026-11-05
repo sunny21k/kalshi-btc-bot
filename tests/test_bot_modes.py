@@ -27,6 +27,7 @@ class BotModeTests(unittest.TestCase):
                 with (
                     patch.multiple(
                         bot,
+                        BotTelemetry=DEFAULT,
                         LIVE_TRADING_ENABLED=live_enabled,
                         get_btc_price=DEFAULT,
                         get_current_market=DEFAULT,

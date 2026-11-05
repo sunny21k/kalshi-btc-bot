@@ -51,6 +51,7 @@ class DualPaperBotTests(unittest.TestCase):
         with (
             patch.multiple(
                 bot,
+                BotTelemetry=DEFAULT,
                 LIVE_TRADING_ENABLED=True,
                 get_btc_price=DEFAULT,
                 get_current_market=DEFAULT,
