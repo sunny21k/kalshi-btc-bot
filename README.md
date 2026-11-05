@@ -104,6 +104,8 @@ bundle is lazy-loaded separately from the bot controls.
 
 Run analytics tests with `python -m unittest discover -s tests` and, from
 `dashboard`, `npm test`. Rebuild the frontend with `npm run build` after changes.
+See [the frontend guide](dashboard/README.md) for the component structure and
+where to make dashboard changes.
 
 ## Entry Reasons And Bot Health
 

@@ -1,28 +1,5 @@
 import { Activity } from 'lucide-react';
-
-type ErrorDetail = { message: string; type: string; source: string; at: string; active: boolean; recoveredAt?: string | null };
-export type BotRuntime = {
-  state: 'healthy' | 'degraded' | 'stale' | 'starting' | 'stopped';
-  processAlive: boolean;
-  managed: boolean;
-  pid?: number;
-  stage?: string;
-  heartbeatAt?: string;
-  heartbeatAgeSeconds?: number | null;
-  priceAgeSeconds?: number | null;
-  price?: { value: string; at: string } | null;
-  market?: {
-    ticker?: string | null; at?: string; closeAt?: string | null;
-    secondsRemaining?: number | string | null; priceDifference?: string | null;
-    yesAsk?: string | null; noAsk?: string | null; spread?: string | null;
-  };
-  decision?: { action: string; reason: string; side?: string; strategy?: string; at: string } | null;
-  blockers: string[];
-  dailyAttempts?: number | null;
-  dailyLimit?: number | null;
-  lastApiError?: ErrorDetail | null;
-  lastError?: ErrorDetail | null;
-};
+import type { BotRuntime } from '../../types/bots';
 
 const dateTime = (value?: string) => value ? new Date(value).toLocaleString() : 'No update yet';
 const age = (seconds?: number | null) => seconds === null || seconds === undefined ? 'No update yet'
@@ -49,6 +26,9 @@ export function BotDiagnostics({ runtime }: { runtime?: BotRuntime }) {
   const timeLeft = seconds !== null && Number.isFinite(seconds) ? `${Math.floor(seconds / 60)}m ${Math.floor(seconds % 60)}s` : '--';
   const health = { healthy: 'Receiving updates', degraded: 'Needs attention', stale: 'Updates stale', starting: 'Awaiting heartbeat', stopped: 'Stopped' }[runtime.state];
   const error = runtime.lastApiError;
+  const emptyHealth = !runtime.processAlive && !runtime.heartbeatAt && !runtime.price && !error && !runtime.lastError;
+  const capReached = runtime.dailyLimit !== null && runtime.dailyLimit !== undefined && runtime.dailyLimit > 0
+    && runtime.dailyAttempts !== null && runtime.dailyAttempts !== undefined && runtime.dailyAttempts >= runtime.dailyLimit;
   const blocked = runtime.blockers.length > 0;
   const outcome = decision?.action === 'HOLD' || decision?.action === 'OPEN' ? 'Managing open position'
     : decision?.action === 'SUBMITTED' ? 'Order attempted'
@@ -76,24 +56,32 @@ export function BotDiagnostics({ runtime }: { runtime?: BotRuntime }) {
             <div><dt>YES / NO ask</dt><dd>{cents(market.yesAsk)} / {cents(market.noAsk)}</dd></div>
           </dl>
         </>}
-        {runtime.dailyLimit !== null && runtime.dailyLimit !== undefined && <div className="diagnostic-limit muted-text">
-          Shared live attempts today (UTC): <strong>{runtime.dailyAttempts ?? 'Unverified'} / {runtime.dailyLimit === 0 ? 'No cap' : runtime.dailyLimit}</strong>
+        {runtime.dailyLimit !== null && runtime.dailyLimit !== undefined && <div className={`diagnostic-limit muted-text ${capReached ? 'diagnostic-limit-reached' : ''}`}>
+          <div className="diagnostic-limit-heading"><span>Shared live attempts today <span className="diagnostic-timezone">UTC</span></span><strong>{runtime.dailyAttempts ?? 'Unverified'} / {runtime.dailyLimit === 0 ? 'No cap' : runtime.dailyLimit}</strong></div>
+          {runtime.dailyLimit > 0 && runtime.dailyAttempts !== null && runtime.dailyAttempts !== undefined && <div
+            className="diagnostic-limit-track" role="meter" aria-label="Shared daily live attempts"
+            aria-valuemin={0} aria-valuemax={runtime.dailyLimit} aria-valuenow={Math.min(runtime.dailyAttempts, runtime.dailyLimit)}
+            aria-valuetext={`${runtime.dailyAttempts} of ${runtime.dailyLimit} attempts`}
+          ><span style={{ width: `${Math.min(100, Math.max(0, runtime.dailyAttempts / runtime.dailyLimit * 100))}%` }} /></div>}
         </div>}
       </div>
       <div className="diagnostic-column diagnostic-health">
         <div className="diagnostic-heading"><h3><Activity size={14} /> Bot health</h3><span className={runtime.state === 'healthy' ? 'money-positive' : runtime.state === 'stale' || runtime.state === 'degraded' ? 'money-negative' : 'muted-text'}>{health}</span></div>
-        <dl className="diagnostic-context health-context">
-          <div><dt>Process</dt><dd>{runtime.processAlive ? `${runtime.managed ? 'Running' : 'Running in terminal'}${runtime.pid ? ` | ${runtime.pid}` : ''}` : 'Stopped'}</dd></div>
-          <div title={dateTime(runtime.heartbeatAt)}><dt>Last heartbeat</dt><dd>{age(runtime.heartbeatAgeSeconds)}</dd></div>
-          <div><dt>Last BTC price</dt><dd>{dollars(runtime.price?.value)}</dd></div>
-          <div title={dateTime(runtime.price?.at)}><dt>Price received</dt><dd>{age(runtime.priceAgeSeconds)}</dd></div>
-        </dl>
-        {runtime.stage && <p className="diagnostic-activity muted-text">{runtime.stage}</p>}
+        {emptyHealth ? <p className="diagnostic-empty muted-text">Heartbeat and price updates appear after the bot starts.</p> : <>
+          <dl className="diagnostic-context health-context">
+            <div title={dateTime(runtime.heartbeatAt)}><dt>Last heartbeat</dt><dd>{age(runtime.heartbeatAgeSeconds)}</dd></div>
+            <div title={dateTime(runtime.price?.at)}><dt>Last BTC price</dt><dd>{dollars(runtime.price?.value)}</dd><div className="diagnostic-price-age muted-text">{runtime.price ? `Received ${age(runtime.priceAgeSeconds).toLowerCase()}` : 'Awaiting price'}</div></div>
+          </dl>
+          {(runtime.pid || runtime.stage) && <p className="diagnostic-activity muted-text">
+            {runtime.pid ? `${runtime.processAlive ? 'Process' : 'Last process'} ${runtime.pid}${runtime.managed ? '' : ' (terminal)'}` : ''}
+            {runtime.pid && runtime.stage ? ' | ' : ''}{runtime.stage}
+          </p>}
+        </>}
         {error ? <details className="diagnostic-error" open={error.active}>
           <summary className={error.active ? 'money-negative' : 'muted-text'}>Last API error | {error.source} | {error.active ? 'Active' : 'Recovered'} <span title={dateTime(error.at)}>{new Date(error.at).toLocaleTimeString()}</span></summary>
           <p>{error.type}: {error.message}</p>
           {error.recoveredAt && <p className="muted-text">Recovered {dateTime(error.recoveredAt)}</p>}
-        </details> : <p className="diagnostic-activity muted-text">{runtime.heartbeatAt ? 'API errors: none recorded for this run' : 'No API observations yet'}</p>}
+        </details> : !emptyHealth && <p className="diagnostic-activity muted-text">{runtime.heartbeatAt ? 'API errors: none recorded for this run' : 'No API observations yet'}</p>}
         {runtime.lastError && runtime.lastError.at !== error?.at && <details className="diagnostic-error" open={runtime.lastError.active}>
           <summary className="muted-text">Last bot error | {runtime.lastError.source}</summary>
           <p>{runtime.lastError.type}: {runtime.lastError.message}</p>

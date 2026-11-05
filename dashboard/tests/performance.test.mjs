@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import test from 'node:test';
 import { transform } from 'esbuild';
 
-const source = await fs.readFile(new URL('../src/performance.ts', import.meta.url), 'utf8');
+const source = await fs.readFile(new URL('../src/lib/performance.ts', import.meta.url), 'utf8');
 const compiled = await transform(source, { loader: 'ts', format: 'cjs' });
 const module = { exports: {} };
 new Function('module', 'exports', compiled.code)(module, module.exports);
