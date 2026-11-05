@@ -33,6 +33,15 @@ export type BotRuntime = {
 };
 
 export type BotStatus = {
+  supportsSettings?: boolean;
+  settings?: BotPreferences;
+  settingsDefaults?: BotPreferences;
+  settingsFingerprint?: string;
+  settingsError?: string | null;
+  supportsEntryPriceRange?: boolean;
+  entryPriceRange?: EntryPriceRange | null;
+  entryPriceDefaults?: Array<EntryPriceRange & { label: string }>;
+  entryPriceError?: string | null;
   rules?: BotRules;
   runtime?: BotRuntime;
   id: string;
@@ -49,6 +58,15 @@ export type BotStatus = {
 };
 
 export type BotCommand = 'start' | 'stop';
-export type BotAction = (botId: string, action: BotCommand, tradeBudget?: string, dailyLiveOrderLimit?: string) => void;
+export type EntryPriceRange = { min: string; max: string };
+export type EntryRule = {
+  id: string; name: string; enabled: boolean; maxMinutesLeft: string; minBtcDistance: string;
+  side: 'BOTH' | 'YES' | 'NO'; priceRange: EntryPriceRange; requireDirection: boolean;
+};
+export type BotPreferences = {
+  entryRules: EntryRule[]; entryPriceRange: EntryPriceRange | null;
+  tradeBudget?: string; dailyLiveOrderLimit?: number;
+};
+export type BotAction = (botId: string, action: BotCommand, tradeBudget?: string, dailyLiveOrderLimit?: string, entryPriceRange?: EntryPriceRange | null) => void;
 
 export type TabId = 'btc15_paper' | 'btc15_dual_paper' | 'btc15_direction_paper' | 'btc15_live' | 'btc15_dual_live' | 'scalp_paper' | 'shadow';

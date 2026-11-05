@@ -1,32 +1,18 @@
 import React from 'react';
-import { X } from 'lucide-react';
 import type { TradeRow } from '../../types/trades';
 import { entryMovement } from '../../lib/entryMovement';
 import { fmtDateTime, tableMoney } from '../../utils/format';
+import { PopupCard } from '../layout/PopupCard';
 
 export function TradeDetails({ row, live = false, onClose }: { row: TradeRow; live?: boolean; onClose: () => void }) {
-  const dialog = React.useRef<HTMLDialogElement>(null);
-  const title = React.useId();
   const movement = entryMovement(row);
   const dollars = (amount: number | null, signed = false) => amount === null ? '--' : tableMoney(String(amount), signed);
   const detail = (label: string, content: React.ReactNode) => <div key={label}><dt>{label}</dt><dd>{content || '--'}</dd></div>;
-  React.useEffect(() => {
-    const element = dialog.current;
-    if (element && !element.open) element.showModal();
-    return () => { if (element?.open) element.close(); };
-  }, []);
   const direction = movement.direction === 'UP' ? 'rising' : movement.direction === 'DOWN' ? 'falling' : movement.direction === 'FLAT' ? 'unchanged' : 'unknown';
   const hasFill = !live || Number(row.filled_count) > 0;
   return (
-    <dialog ref={dialog} className="trade-detail-dialog" aria-labelledby={title}
-      onCancel={event => { event.preventDefault(); onClose(); }}
-      onClick={event => {
-        if (event.target !== event.currentTarget) return;
-        const bounds = event.currentTarget.getBoundingClientRect();
-        if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) onClose();
-      }}>
-      <header className="trade-detail-header"><div><h2 id={title}>{live ? 'Live order details' : row.event ? 'Scalp trade details' : 'Paper trade details'}</h2><p>{row.ticker}</p></div><button type="button" aria-label="Close trade details" onClick={onClose}><X size={18} /></button></header>
-      <div className="trade-detail-body">
+    <PopupCard title={live ? 'Live order details' : row.event ? 'Scalp trade details' : 'Paper trade details'}
+      subtitle={row.ticker} closeLabel="Close trade details" onClose={onClose}>
         <dl className="trade-detail-facts">
           {detail(hasFill ? 'Purchased side' : 'Requested side', row.side)}
           {detail('Entry price', tableMoney(row.entry_price))}
@@ -62,7 +48,6 @@ export function TradeDetails({ row, live = false, onClose }: { row: TradeRow; li
         </section>
         <div className="trade-detail-identifiers"><div><span>Trade ID</span><code>{row.trade_id || '--'}</code></div>{live && row.order_id && <div><span>Exchange order ID</span><code>{row.order_id}</code></div>}</div>
         {(row.sync_error || row.error) && <p className="money-negative trade-detail-error">{row.sync_error || row.error}</p>}
-      </div>
-    </dialog>
+    </PopupCard>
   );
 }

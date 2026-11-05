@@ -1,7 +1,7 @@
 import os
 import ssl
 import time
-from collections import defaultdict
+from collections import defaultdict, deque
 from decimal import Decimal
 
 from requests.exceptions import RequestException
@@ -10,6 +10,8 @@ from websocket import WebSocketException
 from bot import get_current_market, get_seconds_remaining, get_yes_quote
 from btc_feed import get_btc_price
 from bot_telemetry import BotTelemetry
+from entry_prices import entry_price_range_from_env, serialize_entry_price_range
+from entry_rules import entry_rules_from_env, filter_scalp_entry
 from kalshi_api import get_orderbook
 from run_lock import RunLock
 from scalp_execution import close_position, initialize_scalp_file, open_position
@@ -64,8 +66,11 @@ def closed_candles(tick_store, *, now, seconds, limit=20):
 
 
 def main():
+    entry_price_range = entry_price_range_from_env()
+    entry_rules = entry_rules_from_env('scalp_paper')
     initialize_scalp_file()
-    telemetry = BotTelemetry("scalp_paper", poll_seconds=POLL_SECONDS, settings={'scalp': {
+    telemetry = BotTelemetry("scalp_paper", poll_seconds=POLL_SECONDS, settings={
+        'entryPriceRange': serialize_entry_price_range(entry_price_range), 'entryRules': entry_rules, 'scalp': {
         'POLL_SECONDS': POLL_SECONDS, 'CONTRACTS': CONTRACTS, 'ALLOWED_SIDES': ALLOWED_SIDES,
         'COOLDOWN_SECONDS': COOLDOWN_SECONDS, 'MIN_SECONDS_REMAINING': MIN_SECONDS_REMAINING,
         'TRAILING_ACTIVATION': TRAILING_ACTIVATION, 'TRAILING_GIVEBACK': TRAILING_GIVEBACK,
@@ -81,12 +86,15 @@ def main():
     print(f"Trailing activation: ${TRAILING_ACTIVATION}")
     print(f"Trailing giveback: ${TRAILING_GIVEBACK}")
     print(f"Stop loss: ${STOP_LOSS}")
+    if entry_price_range:
+        print(f"Custom entry prices: {entry_price_range['min'] * 100:g}%–{entry_price_range['max'] * 100:g}%")
 
     tick_store = {
         5: defaultdict(list),
         15: defaultdict(list),
     }
     position = None
+    recent_btc_prices = deque(maxlen=4)
     cooldown_until = Decimal("0")
     retry_delay = 1
 
@@ -96,6 +104,7 @@ def main():
             try:
                 telemetry.stage("Fetching BTC price")
                 btc_price = Decimal(str(get_btc_price()))
+                recent_btc_prices.append(btc_price)
                 telemetry.price(btc_price)
                 source = "Kalshi"
                 telemetry.stage("Fetching market and order book")
@@ -117,6 +126,7 @@ def main():
                 # New entries need fresh candles after a data gap; keep the position.
                 for buckets in tick_store.values():
                     buckets.clear()
+                recent_btc_prices.clear()
                 time.sleep(retry_delay)
                 retry_delay = min(retry_delay * 2, MAX_RETRY_SECONDS)
                 continue
@@ -211,7 +221,10 @@ def main():
                         no_ask=no_ask,
                         spread=spread,
                         allowed_sides=ALLOWED_SIDES,
+                        entry_price_range=entry_price_range or ({'min': '.0001', 'max': '.9999'} if entry_rules else None),
                     )
+                    entry = filter_scalp_entry(entry, entry_rules, btc_price=btc_price, target_price=target,
+                        seconds_remaining=seconds_remaining, recent_prices=recent_btc_prices, entry_price_range=entry_price_range)
                 print(f"Decision: {entry['decision']} | {entry['reason']}")
                 telemetry.decide(entry["decision"], entry["reason"], side=entry.get("side", ""))
 

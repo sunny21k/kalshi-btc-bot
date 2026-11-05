@@ -1,10 +1,25 @@
-import { ChevronDown } from 'lucide-react';
+import React from 'react';
+import { ArrowUpRight } from 'lucide-react';
 import type { BotRules } from '../../types/bots';
+import { PopupCard } from '../layout/PopupCard';
 
 export function BotDetails({ rules, name }: { rules?: BotRules; name: string }) {
+  const [open, setOpen] = React.useState(false);
   return (
-    <details className="bot-details" aria-label={`${name} trading rules`}>
-      <summary><span>Bot Details</span><ChevronDown size={14} aria-hidden="true" /></summary>
+    <div className="bot-details">
+      <button type="button" className="bot-details-trigger" aria-haspopup="dialog" aria-expanded={open}
+        aria-label={`${name} trading rules`} onClick={() => setOpen(true)}>
+        Bot Details <ArrowUpRight size={14} aria-hidden="true" />
+      </button>
+      {open && <PopupCard title="Bot Details" subtitle={name} closeLabel="Close bot details" onClose={() => setOpen(false)}>
+        <BotRulesContent rules={rules} />
+      </PopupCard>}
+    </div>
+  );
+}
+
+export function BotRulesContent({ rules }: { rules?: BotRules }) {
+  return (
       <div className="bot-details-content">
         {!rules ? <p className="bot-details-note">Restart the dashboard server to load this bot’s rule details.</p> : <>
           <div className="bot-details-origin"><span>{rules.source === 'running' ? 'Running bot snapshot' : 'Current code rules'}</span><span>{rules.mode === 'live' ? 'Real money' : 'Paper only'}</span></div>
@@ -16,6 +31,5 @@ export function BotDetails({ rules, name }: { rules?: BotRules; name: string }) 
           </section>)}
         </>}
       </div>
-    </details>
   );
 }

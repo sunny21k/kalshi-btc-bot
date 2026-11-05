@@ -40,7 +40,7 @@ test('help renders guide, searchable FAQ, and release history without future ide
   assert.match(html, /<a(?=[^>]*href="\/info\/faq")(?=[^>]*aria-current="location")[^>]*>/);
   assert.match(html, /aria-label="Search help questions"/);
   assert.equal((html.match(/class="faq-item"/g) || []).length, FAQ_QUESTIONS.length);
-  assert.match(html, /Versioning and help pages/);
+  assert.match(html, /Bot controls and trading insights/);
   assert.ok(html.includes(APP_VERSION));
   assert.doesNotMatch(html, />Proposed<|id="info\/ideas"|href="\/info\/ideas"|href="#/);
   assert.match(html, /class="info-eyebrow">Product guide<\/div>/);

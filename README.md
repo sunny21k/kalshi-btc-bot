@@ -1,5 +1,34 @@
 # kalshi-btc-bot
 
+## Dashboard entry prices and details
+
+Open a bot's **Settings** button to add, remove, reorder, enable, or edit
+entry rules. Each rule has a name, maximum minutes remaining, minimum BTC
+distance from target, buy side, minimum/maximum entry percentage, and an
+optional three-move direction check. For example, change a rule to **3 minutes**,
+**$25** distance, and a **75–90%** price band.
+
+**Save settings** writes the rules, budget, and live daily cap to
+`data/bot_settings.json` without launching a process. Each bot saves independently.
+Stop and start a running bot to apply saved changes. **Restore defaults** loads
+the original configuration into the editor; press Save settings to keep it.
+The 15-minute bots select the first enabled rule matching time, distance, and
+side, then require its price, direction, and existing strategy checks to pass.
+Removing or disabling every rule stops new 15-minute entries. Scalp rules are
+extra filters after its candle signal; an empty filter list preserves candle entries.
+
+Settings are validated before saving and before launch. A start from a stale
+dashboard configuration is rejected so the settings can be reviewed again.
+
+Terminal launches can set `KALSHI_MIN_ENTRY_PRICE=0.75` and
+`KALSHI_MAX_ENTRY_PRICE=0.90` together. These environment values use dollars
+per contract, while the dashboard inputs use percentages. Dashboard launches
+use the selected bot's saved preferences rather than inherited price overrides.
+
+**Bot Details** and trade rows open floating detail cards. Scroll over the
+page outside a card to scroll the background, or over the card to scroll its
+contents. Close with Escape, the close button, or a click outside the card.
+
 ## YES/NO Paper Bot
 
 Run from the project root with the virtual environment active:
@@ -246,7 +275,8 @@ where to make dashboard changes.
 The header includes an **Info & FAQ** page with a bot guide, searchable
 questions, and release history. A subtle footer link shows the version.
 Changed frontend builds advance the patch version automatically; rebuilding
-unchanged source keeps the same version. See the frontend guide for release
+unchanged source keeps the same version. Same-day changes share one entry in
+What's New with the latest version number. See the frontend guide for release
 notes and larger version bumps.
 
 ## Entry Reasons And Bot Health

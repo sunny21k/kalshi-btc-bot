@@ -32,7 +32,8 @@ test('BTC movement is independent of the bought contract and final result', () =
   assert.match(html, /Opposite to NO/);
   assert.match(html, /Inferred previous BTC/);
   assert.match(html, /exact exchange fill time was not recorded/);
-  assert.match(html, /<dialog/);
+  assert.match(html, /role="dialog"/);
+  assert.doesNotMatch(html, /aria-modal="true"/);
   assert.match(html, /aria-label="Close trade details"/);
 });
 

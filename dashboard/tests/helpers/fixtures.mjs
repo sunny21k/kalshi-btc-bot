@@ -6,6 +6,22 @@ const row = {
   filled_count: '117.00', submitted_count: '117', fill_status: 'FILLED', fees_paid: '1.0443',
 };
 
+export function botPreferences(id) {
+  const rule = (ruleId, name, minutes, distance, low, high, side = id === 'btc15_paper' ? 'NO' : 'BOTH') => ({
+    id: ruleId, name, enabled: true, maxMinutesLeft: minutes, minBtcDistance: distance, side,
+    priceRange: { min: low, max: high }, requireDirection: id === 'btc15_direction_paper' && ruleId === 'strong_5m_50',
+  });
+  return {
+    entryRules: id === 'scalp_paper' ? [] : [
+      ...(id === 'btc15_live' ? [rule('early_up_9m_70', 'Early YES', '9', '70', '.75', '.92', 'YES')] : []),
+      rule('strong_5m_50', 'Strong entry', '5', '50', id === 'btc15_dual_live' ? '.8' : '.75', '.92'),
+      rule('late_4m_10', 'Late entry', '4', '10', '.75', '.85'),
+    ], entryPriceRange: null,
+    ...(id !== 'scalp_paper' ? { tradeBudget: '100.00' } : {}),
+    ...(id.includes('live') ? { dailyLiveOrderLimit: 30 } : {}),
+  };
+}
+
 export function dashboardFixture() {
   const trade = () => ({
     total: 1, settled: 1, unsettled: 0, wins: 1, losses: 0, winRate: 100,
@@ -29,6 +45,12 @@ export function dashboardFixture() {
       id, name: id, mode: id.includes('live') ? 'live' : 'paper', description: 'Example bot settings',
       running: false, pid: null, returnCode: null, logFile: `data/bot_logs/${id}.log`,
       supportsTradeBudget: id !== 'scalp_paper', tradeBudget: '100.00',
+      supportsSettings: true, settings: botPreferences(id), settingsDefaults: botPreferences(id),
+      supportsEntryPriceRange: true, entryPriceRange: null,
+      entryPriceDefaults: id === 'scalp_paper' ? [{ label: 'Scalp', min: '.01', max: '.99' }] : [
+        { label: '4m', min: '.75', max: '.85' },
+        { label: '5m', min: id === 'btc15_dual_live' ? '.8' : '.75', max: '.92' },
+      ],
       ...(id.includes('live') ? { dailyLiveOrderLimit: 30 } : {}),
       runtime: { state: 'stopped', processAlive: false, managed: true, blockers: ['Bot is stopped. Start it to evaluate new entries.'] },
     })),

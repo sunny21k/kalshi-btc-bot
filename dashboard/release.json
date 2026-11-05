@@ -1,62 +1,29 @@
 {
-  "version": "1.0.5",
-  "sourceHash": "329f2b2182b470112941c90b194ec8298556752cda5aac514ca74abfba3febf7",
+  "version": "1.1.0",
+  "sourceHash": "41f092087c9174a91aabca3eb02a138c56fc794a4930d306209aad95fefeba75",
   "releases": [
     {
-      "version": "1.0.5",
+      "version": "1.1.0",
       "date": "2026-11-05",
-      "title": "Dashboard update",
+      "title": "Bot controls and trading insights",
       "changes": [
-        "Grouped paper and live bots in the sidebar, separated activity logs, and clarified bot names with stronger headings."
-      ]
-    },
-    {
-      "version": "1.0.4",
-      "date": "2026-11-05",
-      "title": "Dashboard update",
-      "changes": [
-        "Added collapsible Bot Details for every bot with entry rules, filters, sizing, and exits.",
-        "Built rule descriptions from strategy settings and distinguished running snapshots from current-code rules."
-      ]
-    },
-    {
-      "version": "1.0.3",
-      "date": "2026-11-05",
-      "title": "Dashboard update",
-      "changes": [
-        "Raised YES/NO live 5-minute/$50 entries to 80-92c.",
-        "Formatted dashboard currency to two decimals.",
-        "Added clickable trade details with BTC movement, observations, and source confidence."
-      ]
-    },
-    {
-      "version": "1.0.2",
-      "date": "2026-11-05",
-      "title": "Dashboard update",
-      "changes": [
-        "Added a separate paper bot requiring three matching BTC moves for the 5-minute/$50 entry rule.",
-        "Added BTC entry direction observations and a historical trade audit with inferred and uncertain labels.",
-        "Removed the Max drawdown statistic."
-      ]
-    },
-    {
-      "version": "1.0.1",
-      "date": "2026-11-05",
-      "title": "Dashboard update",
-      "changes": [
-        "Removed Future ideas from Info & FAQ.",
-        "Increased help text size and moved the version link to the footer.",
-        "Switched page navigation to clean URLs with browser history support."
+        "Added Settings with saved entry rules: timing, BTC distance, buy side, price bands, direction checks, and rule order.",
+        "Added a direction-confirmed paper bot, entry-direction recording, historical trade audits, and offline backtests.",
+        "Set the default YES/NO live 5-minute/$50 band to 80–92% and added editable prices for every bot.",
+        "Added bot and trade detail popups with background scrolling, BTC observations, and clear source confidence.",
+        "Grouped paper and live bots in the sidebar, shortened names, and improved bot headings.",
+        "Formatted currency to two decimals and removed the Max drawdown display.",
+        "Added Info & FAQ, larger help text, clean page URLs, and a discreet version link; removed Future ideas.",
+        "Combined same-day updates into one release entry."
       ]
     },
     {
       "version": "1.0.0",
-      "date": "2026-11-05",
-      "title": "Versioning and help pages",
+      "date": "2026-10-28",
+      "title": "Dashboard foundation",
       "changes": [
-        "Added a visible application version and release history.",
-        "Added Info & FAQ with a getting-started guide, bot explanations, and searchable questions.",
-        "Added a proposals section for larger future features."
+        "Paper and live BTC bots with separate trade histories and bot controls.",
+        "Performance charts, daily P/L calendars, trade tables, fill status, fees, and settlement results."
       ]
     }
   ]

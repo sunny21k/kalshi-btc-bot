@@ -1,4 +1,5 @@
 from decimal import Decimal
+from entry_prices import parse_entry_price_range
 
 
 MIN_LATE_ENTRY_PRICE = Decimal("0.75")
@@ -132,7 +133,17 @@ def make_late_momentum_decision(
     confirmation_count=0,
     enable_early_up=True,
     min_strong_entry_price=MIN_LATE_ENTRY_PRICE,
+    entry_price_range=None,
+    entry_rules=None,
+    rule_confirmation_counts=None,
 ):
+    if entry_rules is not None:
+        from entry_rules import evaluate_entry_rules
+        return evaluate_entry_rules(entry_rules=entry_rules, btc_price=btc_price, target_price=target_price,
+            seconds_remaining=seconds_remaining, yes_ask=yes_ask, no_ask=no_ask, spread=spread,
+            recent_prices=recent_prices, previous_entry_price=previous_entry_price,
+            confirmation_count=confirmation_count, rule_confirmation_counts=rule_confirmation_counts,
+            entry_price_range=entry_price_range)
     if target_price in (None, ""):
         return {
             "decision": "WAIT",
@@ -287,6 +298,9 @@ def make_late_momentum_decision(
     min_entry_price = Decimal(str(min_strong_entry_price)) if strategy_name == "strong_5m_50" else MIN_LATE_ENTRY_PRICE
     if not min_entry_price.is_finite() or not MIN_LATE_ENTRY_PRICE <= min_entry_price <= MAX_STRONG_RULE_ENTRY_PRICE:
         raise ValueError("Strong-rule minimum entry must be between 0.75 and 0.92")
+    if entry_price_range is not None:
+        custom = parse_entry_price_range(entry_price_range)
+        min_entry_price, max_entry_price = custom['min'], custom['max']
     if not min_entry_price <= entry_price <= max_entry_price:
         return {
             "decision": "WAIT",

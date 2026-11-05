@@ -53,7 +53,7 @@ export function App() {
               </div>
             )}
             <ResultSyncStatus sync={data.resultSync} pending={syncRequestPending} error={refreshError} />
-            <BotWorkspace active={activeTab} data={data} onAction={botAction} />
+            <BotWorkspace active={activeTab} data={data} onAction={botAction} onSettingsSaved={load} />
             <DashboardFooter updated={updated} />
           </section>
         </main>

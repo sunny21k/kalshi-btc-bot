@@ -14,7 +14,7 @@ import { RecentTrades } from '../trades/RecentTrades';
 import { ScalpTrades } from '../trades/ScalpTrades';
 import { ShadowTrades } from '../trades/ShadowTrades';
 
-export function BotWorkspace({ active, data, onAction }: { active: TabId; data: DashboardStats; onAction: BotAction }) {
+export function BotWorkspace({ active, data, onAction, onSettingsSaved }: { active: TabId; data: DashboardStats; onAction: BotAction; onSettingsSaved?: () => Promise<void> }) {
   const botById = Object.fromEntries((data.bots ?? []).map((bot) => [bot.id, bot]));
 
   if (active === 'btc15_paper' || active === 'btc15_dual_paper' || active === 'btc15_direction_paper') {
@@ -24,7 +24,7 @@ export function BotWorkspace({ active, data, onAction }: { active: TabId; data: 
       <div className="bot-workspace grid gap-3">
         <BotPerformance key={active} data={stats.performance} />
         <div className="bot-overview">
-          <BotControl key={active} bot={botById[active]} onAction={onAction} />
+          <BotControl key={active} bot={botById[active]} onAction={onAction} onSettingsSaved={onSettingsSaved} />
           <BotDiagnostics runtime={botById[active]?.runtime} />
           <TradePanel title={title} stats={stats} />
         </div>
@@ -40,7 +40,7 @@ export function BotWorkspace({ active, data, onAction }: { active: TabId; data: 
       <div className="bot-workspace grid gap-3">
         <BotPerformance key={active} data={stats.performance} />
         <div className="bot-overview">
-          <BotControl key={active} bot={botById[active]} onAction={onAction} />
+          <BotControl key={active} bot={botById[active]} onAction={onAction} onSettingsSaved={onSettingsSaved} />
           <BotDiagnostics runtime={botById[active]?.runtime} />
           <TradePanel title={`${BOT_NAMES[active]} live trading`} stats={stats} live />
         </div>
@@ -56,7 +56,7 @@ export function BotWorkspace({ active, data, onAction }: { active: TabId; data: 
       <div className="bot-workspace grid gap-3">
         <BotPerformance key={active} data={data.scalp.performance} />
         <div className="bot-overview">
-          <BotControl bot={botById.scalp_paper} onAction={onAction} />
+          <BotControl bot={botById.scalp_paper} onAction={onAction} onSettingsSaved={onSettingsSaved} />
           <BotDiagnostics runtime={botById.scalp_paper?.runtime} />
           <ScalpPanel stats={data.scalp} />
         </div>

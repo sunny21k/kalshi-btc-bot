@@ -3,7 +3,7 @@ import { BOT_NAMES } from './bots';
 
 export const GETTING_STARTED = [
   { title: 'Choose a paper bot', description: 'Open Bots and select a paper bot in the sidebar. Its description explains which entries and exits it uses.' },
-  { title: 'Review the settings', description: 'Set the entry budget where available. Live bots also have a shared daily order limit and require confirmation before starting.' },
+  { title: 'Review the settings', description: 'Open Settings to edit the entry budget and rules, then press Save settings. Live bots also have a shared daily order limit and require confirmation before starting.' },
   { title: 'Watch activity and results', description: 'Use Why no trade? and Bot health to understand activity. Review the trade table, then use Update results to check fills, fees, and settlements.' },
 ];
 
@@ -17,6 +17,7 @@ export const BOT_GUIDES: BotGuide[] = [
 ];
 
 export const FAQ_QUESTIONS: FaqQuestion[] = [
+  { id: 'entry-price-range', category: 'Settings', question: 'Can I change entry rules, times, and prices?', answer: 'Open the bot’s Settings button. Add, remove, enable, disable, or reorder rules. Each rule has a maximum time remaining, minimum BTC distance from target, buy side, price range, and optional three-move direction check. Save settings stores changes for that bot without starting it. Stop and start a running bot to apply them. Rules are checked in order; the first time, distance, and side match must also pass its price and momentum checks. Restore defaults loads the original rules; press Save settings to keep the reset. Scalp rules are optional filters after its candle signal.' },
   { id: 'entry-direction', category: 'Results', question: 'Can I see which way BTC was moving when a trade was bought?', answer: 'Click a trade or its ID to open details. BTC rising means the BTC price increased; BTC falling means it decreased. The bought YES/NO side is shown separately. Details include the BTC price, previous price, dollar and percentage move, and saved price sequence when available. Inferred historical values are estimates from shared logs. Live observations describe the order decision; the exact BTC price at exchange fill time was not recorded.' },
   { id: 'paper-live', category: 'Basics', question: 'What is the difference between paper and live trading?', answer: 'Paper bots record simulated trades without submitting exchange orders. Live bots submit real orders; actual fills and fees can make their results different from paper results.' },
   { id: 'budget', category: 'Settings', question: 'Does the entry budget mean dollars or contracts?', answer: 'It is the maximum entry cost per trade, before fees. The bot rounds down to whole contracts. For example, a $1 budget at an 80-cent entry allows one contract costing 80 cents, before fees. A fill can still be partial or absent.' },

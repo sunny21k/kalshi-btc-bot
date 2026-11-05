@@ -75,3 +75,15 @@ test('paper starts and stop commands do not request live-start confirmation', as
   ]);
   assert.equal(harness.load.mock.calls.length, 2);
 });
+
+test('invalid entry bounds send no commands and live confirmation states custom limits', async context => {
+  const harness = actionsHarness(context);
+  await harness.botAction('btc15_dual_live', 'start', '1', '30', { min: '.91', max: '.75' });
+  await harness.botAction('btc15_dual_live', 'start', '1', '30', { min: 'NaN', max: '.9' });
+  assert.equal(harness.requests.length, 0);
+  assert.equal(harness.confirm.mock.calls.length, 0);
+  const range = { min: '.7525', max: '.9' };
+  await harness.botAction('btc15_dual_live', 'start', '1', '30', range);
+  assert.match(harness.confirm.mock.calls[0].arguments[0], /75.25–90% for every entry rule/);
+  assert.deepEqual(harness.requests[0].body.entryPriceRange, range);
+});

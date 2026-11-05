@@ -59,6 +59,17 @@ test('rejected commands expose the server explanation and are never retried', as
   assert.equal(calls.length, 1);
 });
 
+test('custom ranges and explicit default resets reach starts and never stop commands', async context => {
+  const calls = fakeFetch(context);
+  const range = { min: '.75', max: '.9' };
+  await api.sendBotAction('btc15_dual_live', 'start', '1', '30', range);
+  await api.sendBotAction('scalp_paper', 'start', undefined, undefined, null);
+  await api.sendBotAction('btc15_dual_live', 'stop', '1', '30', range);
+  assert.deepEqual(JSON.parse(calls[0].options.body).entryPriceRange, range);
+  assert.equal(JSON.parse(calls[1].options.body).entryPriceRange, null);
+  assert.deepEqual(JSON.parse(calls[2].options.body), { botId: 'btc15_dual_live' });
+});
+
 test('API errors use the supplied explanation or operation fallback', async (context) => {
   fakeFetch(context, { error: 'Refresh already stopped' }, 400);
   await assert.rejects(api.cancelResultSync(), /Refresh already stopped/);

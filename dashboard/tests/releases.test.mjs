@@ -6,7 +6,7 @@ import test from 'node:test';
 import { buildDashboard } from '../scripts/build.mjs';
 import { planRelease, releaseDate, sourceFingerprint } from '../scripts/releases.mjs';
 
-const initial = () => ({ version: '1.0.0', sourceHash: '', releases: [{ version: '1.0.0', date: '2026-11-05', title: 'First release', changes: ['Help pages'] }] });
+const initial = () => ({ version: '1.0.0', sourceHash: '', releases: [{ version: '1.0.0', date: '2026-10-28', title: 'First release', changes: ['Help pages'] }] });
 
 async function fixture(context) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'dashboard-release-'));
@@ -45,6 +45,17 @@ test('changed source advances patch with notes; larger releases reset lower numb
 
 test('release dates use the dashboard New York calendar', () => {
   assert.equal(releaseDate(new Date('2026-11-06T02:00:00Z')), '2026-11-05');
+});
+
+test('same-day builds combine notes while another date keeps a separate version', () => {
+  const first = planRelease({ ...initial(), sourceHash: 'old' }, 'first', { notes: ['Added settings'], date: '2026-11-05' });
+  const second = planRelease(first, 'second', { notes: ['Added rule editing', 'Added settings'], date: '2026-11-05' });
+  assert.equal(second.releases.length, 2);
+  assert.equal(second.releases[0].version, second.version);
+  assert.deepEqual(second.releases[0].changes, ['Added rule editing', 'Added settings']);
+  assert.equal(second.releases[1].date, '2026-10-28');
+  const tomorrow = planRelease(second, 'third', { notes: ['New day'], date: '2026-11-06' });
+  assert.equal(tomorrow.releases.length, 3);
 });
 
 test('fingerprints detect added, changed, and removed page content and assets, ignoring build output', async context => {

@@ -17,6 +17,8 @@ def consecutive_direction_matches(side, recent_prices):
 
 def make_direction_paper_decision(**kwargs):
     kwargs["enable_early_up"] = False
+    if kwargs.get('entry_rules') is not None:
+        return make_late_momentum_decision(**kwargs)
     result = make_late_momentum_decision(**kwargs)
     if result.get("strategy_name") != "strong_5m_50":
         return result

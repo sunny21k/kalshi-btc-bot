@@ -34,16 +34,23 @@ The bot-actions hook retains input validation and the live-money confirmation.
 The chart library stays behind the `BotPerformance` lazy-loading boundary.
 
 `components/bots/BotDetails.tsx` renders the server-provided rule profile in a
-collapsed native disclosure inside each bot's control panel. Rule text comes
+floating popup opened from each bot's control panel. Rule text comes
 from `src/bot_rules.py` in the repository root, using strategy constants and
 runtime settings. Running rule snapshots and current-code fallbacks are
 labeled separately; the frontend does not maintain another copy of thresholds.
 
-Click a trade row or its ID button to open the native modal dialog. Escape,
-the close button, or the backdrop dismisses it. `lib/entryMovement.ts` derives
+Click a trade row or its ID button to open its floating detail card. Escape,
+the close button, or a click outside dismisses it. Background scrolling stays
+available for both cards. `lib/entryMovement.ts` derives
 the displayed BTC movement details from saved observations; historical
 reconstructions stay labeled as inferred. Currency presentation uses two
 decimals while numeric source data stays unchanged.
+
+`components/bots/BotSettings.tsx` edits saved preferences in a separate popup.
+`EntryRuleEditor.tsx` and `lib/botSettings.ts` manage rule forms and validation.
+Saving posts to `/api/bots/settings` and does not start or stop a bot. The Python
+runner receives its saved rule list on its next launch. Start requests include
+the reviewed settings fingerprint so a stale page cannot launch changed rules.
 
 To change a table, edit `components/trades/`. To change a bot's control panel,
 edit `components/bots/BotControl.tsx`. Financial calculations belong in
@@ -94,8 +101,10 @@ npm run release:minor -- --note="Added the strategy workspace"
 npm run release:major -- --note="Introduced new account settings"
 ```
 
-Repeat `--note` to add multiple release notes. Without notes, changed builds
-get a generic dashboard-update entry. Explicit minor/major releases advance
+Repeat `--note` to add multiple release notes. Builds on the same New York
+calendar date update one release entry, combining distinct notes and retaining
+the latest version number. A later date creates another entry. Without notes,
+changed builds get a generic dashboard-update note. Explicit minor/major releases advance
 the version even if the source fingerprint is unchanged.
 
 `release.json`, `package.json`, and `package-lock.json` stay synchronized. If

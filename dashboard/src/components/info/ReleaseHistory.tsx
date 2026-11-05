@@ -3,7 +3,7 @@ import { APP_RELEASE, formatReleaseDate } from '../../lib/releases';
 export function ReleaseHistory() {
   return (
     <section className="info-section" id="info/updates" aria-labelledby="updates-heading">
-      <div className="info-section-heading"><h2 id="updates-heading">What's new</h2><p>Changes included in each published dashboard build.</p></div>
+      <div className="info-section-heading"><h2 id="updates-heading">What's new</h2><p>Updates grouped by release date.</p></div>
       <ol className="release-history">
         {APP_RELEASE.releases.map(release => (
           <li key={release.version}>

@@ -33,6 +33,10 @@ from trade_direction_audit import REPORT_FILE as DIRECTION_AUDIT_FILE
 from prediction_tracker import refresh_results
 from performance_analytics import build_performance
 from trade_sizing import parse_trade_budget
+from entry_prices import default_entry_price_bands, serialize_entry_price_range, MIN_ENV, MAX_ENV
+from bot_settings import (saved_entry_price_range, save_entry_price_range, saved_entry_rules,
+    configured_bot_preferences, default_bot_preferences, validate_bot_preferences, save_bot_config, preferences_fingerprint)
+from entry_rules import RULES_ENV
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -48,6 +52,9 @@ LOG_DIR = DATA_DIR / "bot_logs"
 BOT_PROCESSES = {}
 BOT_TRADE_BUDGETS = {}
 BOT_DAILY_LIVE_LIMITS = {}
+BOT_ENTRY_PRICE_RANGES = {}
+BOT_ENTRY_RULES = {}
+UNSET_ENTRY_RANGE = object()
 STARTUP_CHECK_SECONDS = 0.35
 RESULT_SYNC_LOCK = threading.Lock()
 RESULT_SYNC_CANCEL = threading.Event()
@@ -119,7 +126,7 @@ BOTS = {
         "script": "dual_live_bot.py",
         "mode": "live",
         "description": (
-            "Live YES/NO: 4m/$10 at 75–85c, or 5m/$50 at 80–92c. "
+            "Live YES/NO entries using the 4m/$10 and 5m/$50 rules. "
             "One entry per market."
         ),
         "env": {"KALSHI_LIVE_TRADING": "true"},
@@ -446,9 +453,24 @@ def bot_statuses(*, ledger_rows=None):
             managed=process is not None,
         )
         active_settings = (runtime.get('settings') or {}) if runtime.get('processAlive') else {}
+        range_error = None
+        try:
+            configured_range = saved_entry_price_range(ROOT, bot_id)
+            configured_rules = saved_entry_rules(ROOT, bot_id)
+            preferences = configured_bot_preferences(ROOT, bot_id)
+        except (OSError, ValueError) as exc:
+            configured_range, range_error = None, str(exc)
+            configured_rules, preferences = None, default_bot_preferences(bot_id)
+        entry_range = (
+            active_settings.get('entryPriceRange', BOT_ENTRY_PRICE_RANGES.get(bot_id) if running else None)
+            if runtime.get('processAlive') or running else configured_range
+        )
         rule_settings = {
             'tradeBudget': active_settings.get('tradeBudget', str(BOT_TRADE_BUDGETS.get(bot_id, config.get('defaultTradeBudget', PAPER_TRADE_BUDGET)))),
             'dailyLimit': active_settings.get('dailyLimit', daily_limit),
+            'entryPriceRange': entry_range,
+            'entryRules': (active_settings.get('entryRules', BOT_ENTRY_RULES.get(bot_id) if running else None)
+                           if runtime.get('processAlive') or running else configured_rules),
         }
         if isinstance(active_settings.get('scalp'), dict):
             rule_settings['scalp'] = active_settings['scalp']
@@ -456,7 +478,13 @@ def bot_statuses(*, ledger_rows=None):
             "id": bot_id,
             "name": config["name"],
             "mode": config["mode"],
-            "description": config["description"],
+            "description": (f"15-minute BTC entries with {sum(rule['enabled'] for rule in rule_settings['entryRules'])} enabled rules. One entry per market."
+                            if rule_settings['entryRules'] is not None and bot_id != 'scalp_paper' else config["description"]),
+            "supportsSettings": True,
+            "settings": preferences,
+            "settingsFingerprint": preferences_fingerprint(preferences),
+            "settingsDefaults": default_bot_preferences(bot_id),
+            "settingsError": range_error,
             "rules": reported_rules(bot_id, runtime, settings=rule_settings),
             "running": running,
             "pid": process.pid if running else None,
@@ -467,6 +495,10 @@ def bot_statuses(*, ledger_rows=None):
             ),
             "logFile": str(log_path(bot_id).relative_to(ROOT)),
             "supportsTradeBudget": "budgetEnv" in config,
+            "supportsEntryPriceRange": True,
+            "entryPriceRange": entry_range,
+            "entryPriceDefaults": default_entry_price_bands(bot_id),
+            "entryPriceError": range_error,
             "tradeBudget": (
                 f"{BOT_TRADE_BUDGETS.get(bot_id, config['defaultTradeBudget']):.2f}"
                 if "budgetEnv" in config else None
@@ -488,17 +520,38 @@ def dashboard_event(message):
     print(f"[{timestamp}] {message}", flush=True)
 
 
-def start_bot(bot_id, *, trade_budget=None, daily_live_order_limit=None):
+def update_bot_settings(bot_id, settings):
+    if bot_id not in BOTS:
+        return {"error": "unknown bot"}, 404
+    try:
+        preferences = validate_bot_preferences(bot_id, settings)
+        save_bot_config(ROOT, bot_id, preferences)
+    except ValueError as exc:
+        return {"ok": False, "message": str(exc), "bot": bot_id}, 400
+    except OSError as exc:
+        return {"ok": False, "message": f"Could not save settings: {exc}", "bot": bot_id}, 500
+    return {"ok": True, "message": "Settings saved. They apply the next time this bot starts.", "bot": bot_id, "settings": preferences}, 200
+
+
+def start_bot(bot_id, *, trade_budget=None, daily_live_order_limit=None, entry_price_range=UNSET_ENTRY_RANGE, expected_settings_fingerprint=None):
     if bot_id not in BOTS:
         dashboard_event(f"START failed | unknown bot: {bot_id}")
         return {"error": "unknown bot"}, 404
 
     config = BOTS[bot_id]
+    try:
+        entry_range = saved_entry_price_range(ROOT, bot_id) if entry_price_range is UNSET_ENTRY_RANGE else serialize_entry_price_range(entry_price_range)
+        entry_rules = saved_entry_rules(ROOT, bot_id)
+        preferences = configured_bot_preferences(ROOT, bot_id)
+    except (OSError, ValueError) as exc:
+        return {"ok": False, "message": str(exc), "bot": bot_id}, 400
+    if expected_settings_fingerprint is not None and expected_settings_fingerprint != preferences_fingerprint(preferences):
+        return {"ok": False, "message": "Settings changed since this page loaded. Refresh the dashboard and review them before starting.", "bot": bot_id}, 409
     budget = None
     if "budgetEnv" in config:
         try:
             budget = parse_trade_budget(
-                config["defaultTradeBudget"] if trade_budget is None else trade_budget
+                preferences.get('tradeBudget', config["defaultTradeBudget"]) if trade_budget is None else trade_budget
             )
         except ValueError as exc:
             return {"ok": False, "message": str(exc), "bot": bot_id}, 400
@@ -509,7 +562,7 @@ def start_bot(bot_id, *, trade_budget=None, daily_live_order_limit=None):
     if config["mode"] == "live":
         try:
             daily_limit = parse_daily_live_trade_limit(
-                MAX_LIVE_TRADES_PER_DAY if daily_live_order_limit is None else daily_live_order_limit
+                preferences.get('dailyLiveOrderLimit', MAX_LIVE_TRADES_PER_DAY) if daily_live_order_limit is None else daily_live_order_limit
             )
         except ValueError as exc:
             return {"ok": False, "message": str(exc), "bot": bot_id}, 400
@@ -518,6 +571,8 @@ def start_bot(bot_id, *, trade_budget=None, daily_live_order_limit=None):
 
     process = BOT_PROCESSES.get(bot_id)
     if process_running(process):
+        if entry_price_range is not UNSET_ENTRY_RANGE and entry_range != BOT_ENTRY_PRICE_RANGES.get(bot_id):
+            return {"ok": False, "message": "Stop the bot before changing its entry price range", "bot": bot_id}, 409
         current_budget = BOT_TRADE_BUDGETS.get(bot_id, config.get("defaultTradeBudget"))
         if trade_budget is not None and budget != current_budget:
             return {"ok": False, "message": "Stop the bot before changing its budget", "bot": bot_id}, 409
@@ -538,10 +593,20 @@ def start_bot(bot_id, *, trade_budget=None, daily_live_order_limit=None):
     env = os.environ.copy()
     env["PYTHONPATH"] = str(ROOT / "src")
     env.update(config.get("env", {}))
+    # Explicit empty values keep inherited environment/.env overrides out of
+    # bots using their strategy defaults. Each child gets only its own range.
+    env[MIN_ENV] = entry_range['min'] if entry_range else ''
+    env[MAX_ENV] = entry_range['max'] if entry_range else ''
+    env[RULES_ENV] = json.dumps(entry_rules) if entry_rules is not None else ''
     if budget is not None:
         env[config["budgetEnv"]] = f"{budget:.2f}"
     if daily_limit is not None:
         env["KALSHI_MAX_LIVE_TRADES_PER_DAY"] = str(daily_limit)
+    if entry_price_range is not UNSET_ENTRY_RANGE:
+        try:
+            save_entry_price_range(ROOT, bot_id, entry_range)
+        except (OSError, ValueError) as exc:
+            return {"ok": False, "message": f"Could not save entry prices: {exc}", "bot": bot_id}, 500
     with log_path(bot_id).open("a") as log_file:
         process = subprocess.Popen(
             [sys.executable, str(ROOT / "src" / config["script"])],
@@ -566,6 +631,8 @@ def start_bot(bot_id, *, trade_budget=None, daily_live_order_limit=None):
         }, 409
 
     BOT_PROCESSES[bot_id] = process
+    BOT_ENTRY_PRICE_RANGES[bot_id] = entry_range
+    BOT_ENTRY_RULES[bot_id] = entry_rules
     if budget is not None:
         BOT_TRADE_BUDGETS[bot_id] = budget
     if daily_limit is not None:
@@ -692,7 +759,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 bot_id,
                 trade_budget=body.get("tradeBudget"),
                 daily_live_order_limit=body.get("dailyLiveOrderLimit"),
+                **({"entry_price_range": body['entryPriceRange']} if 'entryPriceRange' in body else {}),
+                **({"expected_settings_fingerprint": body['expectedSettingsFingerprint']} if 'expectedSettingsFingerprint' in body else {}),
             )
+            json_response(self, payload, status=status)
+            return
+
+        if path == '/api/bots/settings':
+            payload, status = update_bot_settings(bot_id, body.get('settings'))
             json_response(self, payload, status=status)
             return
 

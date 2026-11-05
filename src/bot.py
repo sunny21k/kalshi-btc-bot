@@ -6,6 +6,8 @@ from decimal import Decimal
 
 from btc_feed import get_btc_price
 from entry_context import make_entry_context
+from entry_prices import entry_price_range_from_env, serialize_entry_price_range
+from entry_rules import entry_rules_from_env
 from bot_telemetry import BotTelemetry
 from requests.exceptions import RequestException
 from kalshi_api import get_markets_for_series, get_orderbook
@@ -177,16 +179,23 @@ def main(
             str(DEFAULT_LIVE_TRADE_BUDGET if live_enabled else PAPER_TRADE_BUDGET),
         )
     trade_budget = parse_trade_budget(trade_budget)
+    entry_price_range = entry_price_range_from_env()
     bot_id = live_bot_id if live_enabled else (paper_bot_id or ("btc15_dual_paper" if paper_trade_file else "btc15_paper"))
+    entry_rules = entry_rules_from_env(bot_id)
     telemetry = BotTelemetry(
         bot_id,
         poll_seconds=POLL_SECONDS,
-        settings={"dailyLimit": MAX_LIVE_TRADES_PER_DAY if live_enabled else None, "tradeBudget": str(trade_budget)},
+        settings={"dailyLimit": MAX_LIVE_TRADES_PER_DAY if live_enabled else None, "tradeBudget": str(trade_budget),
+                  "entryPriceRange": serialize_entry_price_range(entry_price_range), "entryRules": entry_rules},
     )
 
     print(f"Starting {bot_name}...")
     print("Mode: LIVE MONEY" if live_enabled else "Mode: PAPER")
     print(f"Entry budget: ${trade_budget:.2f} per trade, before fees (whole contracts)")
+    if entry_price_range:
+        print(f"Custom entry prices: {entry_price_range['min'] * 100:g}%–{entry_price_range['max'] * 100:g}% (all entry rules)")
+    if entry_rules is not None:
+        print(f"Saved entry rules: {sum(rule['enabled'] for rule in entry_rules)} enabled (checked in listed order)")
     if live_enabled:
         daily_limit = (
             f"{MAX_LIVE_TRADES_PER_DAY} attempts per UTC day"
@@ -203,6 +212,7 @@ def main(
     previous_btc_price = None
     recent_btc_prices = deque(maxlen=4)
     confirmation_counts = {}
+    rule_confirmation_counts = {}
     previous_entry_prices = {}
 
     while True:
@@ -284,6 +294,16 @@ def main(
                     confirmation_counts[(ticker, "YES")] = 0
                     confirmation_counts[(ticker, "NO")] = 0
 
+            if entry_rules is not None:
+                difference = price_difference_for_confirmation
+                confirmation_key = (ticker, 'YES' if difference > 0 else 'NO') if difference else None
+                for rule in entry_rules:
+                    for side in ('YES', 'NO'):
+                        key = (ticker, rule['id'], side)
+                        matches = (difference is not None and (difference > 0 if side == 'YES' else difference < 0)
+                                   and rule['side'] in ('BOTH', side) and abs(difference) >= Decimal(rule['minBtcDistance']))
+                        rule_confirmation_counts[key] = rule_confirmation_counts.get(key, 0) + 1 if matches else 0
+
             trade_signal = (decision_fn or make_late_momentum_decision)(
                 btc_price=btc_price,
                 target_price=target_price,
@@ -303,6 +323,11 @@ def main(
                     else 0
                 ),
                 enable_early_up=enable_early_up,
+                entry_price_range=entry_price_range,
+                **({"entry_rules": entry_rules, "rule_confirmation_counts": {
+                    (rule['id'], side): rule_confirmation_counts.get((ticker, rule['id'], side), 0)
+                    for rule in entry_rules for side in ('YES', 'NO')
+                }} if entry_rules is not None else {}),
             )
             if (
                 not live_enabled

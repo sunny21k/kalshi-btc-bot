@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from decimal import Decimal
+from entry_prices import parse_entry_price_range
 
 
 MIN_ENTRY_PRICE = Decimal("0.01")
@@ -63,6 +64,7 @@ def choose_scalp_entry(
     no_ask,
     spread,
     allowed_sides=("YES", "NO"),
+    entry_price_range=None,
 ):
     if len(candles_5s) < 3 or len(candles_15s) < 1:
         return wait("not enough candle history")
@@ -88,6 +90,7 @@ def choose_scalp_entry(
             entry_price=yes_ask,
             reason=scalp_entry_reason("5s up momentum", confirmation_direction),
             candles=recent_5s,
+            entry_price_range=entry_price_range,
         )
 
     if (
@@ -102,12 +105,13 @@ def choose_scalp_entry(
             entry_price=no_ask,
             reason=scalp_entry_reason("5s down momentum", confirmation_direction),
             candles=recent_5s,
+            entry_price_range=entry_price_range,
         )
 
     return wait("no candle continuation")
 
 
-def entry_if_price_ok(*, side, prediction, entry_price, reason, candles):
+def entry_if_price_ok(*, side, prediction, entry_price, reason, candles, entry_price_range=None):
     if candles[-1].direction == "FLAT":
         return wait("latest candle flat")
 
@@ -115,7 +119,9 @@ def entry_if_price_ok(*, side, prediction, entry_price, reason, candles):
         return wait("entry candle body shrinking")
 
     entry_price = Decimal(str(entry_price))
-    if not MIN_ENTRY_PRICE <= entry_price <= MAX_ENTRY_PRICE:
+    custom = parse_entry_price_range(entry_price_range)
+    low, high = (custom['min'], custom['max']) if custom else (MIN_ENTRY_PRICE, MAX_ENTRY_PRICE)
+    if not low <= entry_price <= high:
         return wait(f"{side} ask outside scalp price band")
 
     return {

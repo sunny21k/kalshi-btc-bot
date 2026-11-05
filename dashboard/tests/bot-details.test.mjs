@@ -5,22 +5,23 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { loadModule } from './helpers/load-module.mjs';
 import { dashboardFixture } from './helpers/fixtures.mjs';
 
-const { BotDetails } = await loadModule('../../src/components/bots/BotDetails.tsx');
+const { BotDetails, BotRulesContent } = await loadModule('../../src/components/bots/BotDetails.tsx');
 const { BotControl } = await loadModule('../../src/components/bots/BotControl.tsx');
 const { botDisplayName } = await loadModule('../../src/content/bots.ts');
 const render = (component, props) => renderToStaticMarkup(React.createElement(component, props));
 const profile = source => ({ schemaVersion: 1, botId: 'btc15_dual_live', mode: 'live', fingerprint: 'test', source,
   sections: [{ title: 'Entry rules', items: [{ label: '5-minute rule', detail: '80¢–92¢; BTC at least $50.00 from target.' }] }] });
 
-test('rule details are collapsed and expose entry rules without API requests', context => {
+test('bot details exposes a popup button and keeps rule content read only', context => {
   const fetch = context.mock.method(globalThis, 'fetch', () => { throw new Error('Details must not send commands'); });
   const html = render(BotDetails, { rules: profile('current'), name: 'YES/NO Live' });
-  assert.match(html, /<details class="bot-details"/);
-  assert.doesNotMatch(html, /<details[^>]*\bopen/);
-  assert.match(html, /<summary>/);
+  assert.match(html, /aria-haspopup="dialog"/);
+  assert.match(html, /aria-expanded="false"/);
+  assert.doesNotMatch(html, /role="dialog"|<details/);
   assert.match(html, /Bot Details/);
-  assert.match(html, /80¢–92¢/);
-  assert.match(html, /Current code rules/);
+  const content = render(BotRulesContent, { rules: profile('current') });
+  assert.match(content, /80¢–92¢/);
+  assert.match(content, /Current code rules/);
   assert.equal(fetch.mock.calls.length, 0);
 });
 
@@ -33,11 +34,11 @@ test('all bot controls include their own details affordance', () => {
 });
 
 test('running snapshots and unreported old processes are clearly distinguished', () => {
-  const running = render(BotDetails, { rules: { ...profile('running'), matchesCurrent: false }, name: 'Live' });
+  const running = render(BotRulesContent, { rules: { ...profile('running'), matchesCurrent: false } });
   assert.match(running, /Running bot snapshot/);
   assert.match(running, /current launch configuration differs/);
-  const legacy = render(BotDetails, { rules: { ...profile('current'), runningWithoutSnapshot: true }, name: 'Live' });
+  const legacy = render(BotRulesContent, { rules: { ...profile('current'), runningWithoutSnapshot: true } });
   assert.match(legacy, /has not reported a rule snapshot/);
   assert.doesNotMatch(legacy, /Running bot snapshot/);
-  assert.match(render(BotDetails, { name: 'Live' }), /Restart the dashboard server/);
+  assert.match(render(BotRulesContent, {}), /Restart the dashboard server/);
 });

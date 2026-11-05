@@ -54,13 +54,14 @@ export function planRelease(current, sourceHash, { bump, notes = [], date = rele
   else if (bump === 'minor') { minor += 1; patch = 0; }
   else patch += 1;
   const version = `${major}.${minor}.${patch}`;
+  const sameDay = current.releases.filter(release => release.date === date);
+  const changes = [...new Set([...(notes.length ? notes : ['Updated dashboard pages and components.']), ...sameDay.flatMap(release => release.changes)])];
   return {
     ...current,
     version,
     sourceHash,
     releases: [{
-      version, date, title: 'Dashboard update',
-      changes: notes.length ? notes : ['Updated dashboard pages and components.'],
-    }, ...current.releases],
+      version, date, title: sameDay[0]?.title || 'Dashboard update', changes,
+    }, ...current.releases.filter(release => release.date !== date)],
   };
 }

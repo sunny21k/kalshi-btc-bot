@@ -1,4 +1,4 @@
-import type { BotCommand } from '../types/bots';
+import type { BotCommand, EntryPriceRange, BotPreferences } from '../types/bots';
 import type { DashboardStats, ResultSync } from '../types/dashboard';
 
 type SyncResponse = { resultSync?: ResultSync; error?: string };
@@ -34,10 +34,16 @@ export function cancelResultSync() {
   return postJson<SyncResponse>('/api/results/cancel', {}, 'Could not stop results refresh');
 }
 
-export function sendBotAction(botId: string, action: BotCommand, tradeBudget?: string, dailyLiveOrderLimit?: string) {
+export function saveBotSettings(botId: string, settings: BotPreferences) {
+  return postJson<{ ok: boolean; settings: BotPreferences }>('/api/bots/settings', { botId, settings }, 'Could not save bot settings');
+}
+
+export function sendBotAction(botId: string, action: BotCommand, tradeBudget?: string, dailyLiveOrderLimit?: string, entryPriceRange?: EntryPriceRange | null, expectedSettingsFingerprint?: string) {
   return postJson<{ message?: string; error?: string }>('/api/bots/' + action, {
     botId,
     ...(action === 'start' && tradeBudget !== undefined ? { tradeBudget } : {}),
     ...(action === 'start' && dailyLiveOrderLimit !== undefined ? { dailyLiveOrderLimit } : {}),
+    ...(action === 'start' && entryPriceRange !== undefined ? { entryPriceRange } : {}),
+    ...(action === 'start' && expectedSettingsFingerprint !== undefined ? { expectedSettingsFingerprint } : {}),
   }, 'Bot action failed');
 }
