@@ -6,6 +6,7 @@ export function BotSidebar({ active, onChange, data }: { active: TabId; onChange
   const tabs: Array<{ id: TabId; label: string; detail: string; running?: boolean }> = [
     { id: 'btc15_paper', label: '15m NO Only', detail: `${data.paper.total} trades`, running: botById.btc15_paper?.running },
     { id: 'btc15_dual_paper', label: '15m YES / NO', detail: `${data.dualPaper.total} trades`, running: botById.btc15_dual_paper?.running },
+    { id: 'btc15_direction_paper', label: '15m Direction', detail: `${data.directionPaper.total} trades`, running: botById.btc15_direction_paper?.running },
     { id: 'btc15_live', label: '15m Live', detail: `${data.live.total} trades`, running: botById.btc15_live?.running },
     { id: 'btc15_dual_live', label: 'YES / NO Live', detail: `${data.dualLive.total} trades`, running: botById.btc15_dual_live?.running },
     { id: 'scalp_paper', label: 'Scalp Paper', detail: `${data.scalp.total} entries`, running: botById.scalp_paper?.running },

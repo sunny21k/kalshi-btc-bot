@@ -13,6 +13,7 @@ MIN_SECONDS_TO_CLOSE = Decimal("30")
 MAX_ENTRY_SPREAD = Decimal("0.03")
 MAX_LATE_RULE_ENTRY_PRICE = Decimal("0.85")
 MAX_STRONG_RULE_ENTRY_PRICE = Decimal("0.92")
+MIN_DUAL_LIVE_STRONG_ENTRY_PRICE = Decimal("0.80")
 MAX_ASK_CHASE_MOVE = Decimal("0.05")
 MIN_CONFIRMATION_POLLS = 3
 MAX_REVERSAL_DOLLARS = Decimal("10")
@@ -130,6 +131,7 @@ def make_late_momentum_decision(
     previous_entry_price=None,
     confirmation_count=0,
     enable_early_up=True,
+    min_strong_entry_price=MIN_LATE_ENTRY_PRICE,
 ):
     if target_price in (None, ""):
         return {
@@ -282,7 +284,10 @@ def make_late_momentum_decision(
         if early_up_rule_passed or strong_rule_passed
         else MAX_LATE_RULE_ENTRY_PRICE
     )
-    if not MIN_LATE_ENTRY_PRICE <= entry_price <= max_entry_price:
+    min_entry_price = Decimal(str(min_strong_entry_price)) if strategy_name == "strong_5m_50" else MIN_LATE_ENTRY_PRICE
+    if not min_entry_price.is_finite() or not MIN_LATE_ENTRY_PRICE <= min_entry_price <= MAX_STRONG_RULE_ENTRY_PRICE:
+        raise ValueError("Strong-rule minimum entry must be between 0.75 and 0.92")
+    if not min_entry_price <= entry_price <= max_entry_price:
         return {
             "decision": "WAIT",
             "side": side,
@@ -323,6 +328,11 @@ def make_late_momentum_decision(
             )
         ),
     }
+
+
+def make_dual_live_decision(**kwargs):
+    kwargs.update(enable_early_up=False, min_strong_entry_price=MIN_DUAL_LIVE_STRONG_ENTRY_PRICE)
+    return make_late_momentum_decision(**kwargs)
 
 
 def momentum_confirms(prediction, recent_prices):

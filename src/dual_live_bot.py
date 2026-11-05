@@ -3,6 +3,7 @@ import os
 from bot import main as run_bot
 from live_execution import DUAL_LIVE_BOT_ID
 from run_lock import RunLock
+from strategy import make_dual_live_decision
 
 
 def main():
@@ -15,6 +16,7 @@ def main():
             run_bot(
                 live_enabled=True,
                 live_bot_id=DUAL_LIVE_BOT_ID,
+                decision_fn=make_dual_live_decision,
                 enable_early_up=False,
                 bot_name="BTC 15M YES/NO LIVE BOT",
             )

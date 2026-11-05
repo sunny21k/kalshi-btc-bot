@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 from outcome_tracker import get_market_result, prediction_was_correct
 from live_execution import update_live_trade_results
-from paper_execution import DUAL_TRADE_FILE, update_paper_trade_results
+from paper_execution import DIRECTION_TRADE_FILE, DUAL_TRADE_FILE, update_paper_trade_results
 from run_lock import RunLock
 
 
@@ -133,6 +133,7 @@ def refresh_results(*, should_stop=None, on_progress=None):
     summary = {
         "paperSettled": 0,
         "dualPaperSettled": 0,
+        "directionPaperSettled": 0,
         "liveSettled": 0,
         "predictionsRecorded": 0,
         "errors": [],
@@ -174,6 +175,7 @@ def refresh_results(*, should_stop=None, on_progress=None):
             ("liveSettled", lambda **kwargs: update_live_trade_results(get_result, **kwargs)),
             ("paperSettled", lambda **kwargs: update_paper_trade_results(get_result, **kwargs)),
             ("dualPaperSettled", lambda **kwargs: update_paper_trade_results(get_result, trade_file=DUAL_TRADE_FILE, **kwargs)),
+            ("directionPaperSettled", lambda **kwargs: update_paper_trade_results(get_result, trade_file=DIRECTION_TRADE_FILE, **kwargs)),
             ("predictionsRecorded", lambda **kwargs: track_completed_markets(get_result_fn=get_result, **kwargs)),
         )
         try:
@@ -209,6 +211,7 @@ def main():
     print()
     print(f"Paper trades settled: {summary['paperSettled']}")
     print(f"YES/NO paper trades settled: {summary['dualPaperSettled']}")
+    print(f"Direction paper trades settled: {summary.get('directionPaperSettled', 0)}")
     print(f"Live trades settled: {summary['liveSettled']}")
     print(f"New results recorded: {summary['predictionsRecorded']}")
     print(f"Checks needing attention: {summary['errorCount']}")

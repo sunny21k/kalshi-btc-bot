@@ -1,9 +1,12 @@
 import { Activity } from 'lucide-react';
+import { APP_VERSION } from '../../lib/releases';
+import { AppLink } from './AppLink';
 
-export function DashboardFooter({ updated }: { updated: string }) {
+export function DashboardFooter({ updated, showUpdates = true }: { updated: string; showUpdates?: boolean }) {
   return (
-    <div className="muted-text flex items-center gap-2 pb-4 pt-2 text-xs">
-      <Activity size={14} /> {updated ? `Dashboard updated ${updated}.` : 'Auto-refreshes every 5 seconds.'}
-    </div>
+    <footer className="dashboard-footer muted-text">
+      {showUpdates && <span><Activity size={14} /> {updated ? `Dashboard updated ${updated}.` : 'Auto-refreshes every 5 seconds.'}</span>}
+      <AppLink href="/info/updates">{APP_VERSION} <span aria-hidden="true">/</span> What's new</AppLink>
+    </footer>
   );
 }

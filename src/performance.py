@@ -9,7 +9,7 @@ from live_execution import (
     live_filled_count,
 )
 from outcome_tracker import prediction_was_correct
-from paper_execution import DUAL_TRADE_FILE
+from paper_execution import DIRECTION_TRADE_FILE, DUAL_TRADE_FILE
 
 
 DATA_FILE = "data/market_data.csv"
@@ -293,6 +293,17 @@ def print_dual_paper_trade_performance():
     )
 
 
+def print_direction_paper_trade_performance():
+    print_trade_performance(
+        file_path=DIRECTION_TRADE_FILE,
+        title="DIRECTION PAPER TRADING PERFORMANCE",
+        total_label="Total Direction Paper Trades",
+        no_trades_message="No direction paper trades found.",
+        cost_field="cost",
+        include_edge=True,
+    )
+
+
 def print_live_trade_performance():
     print_trade_performance(
         file_path=LIVE_TRADE_FILE,
@@ -419,6 +430,7 @@ def print_prediction_performance():
 def main():
     print_paper_trade_performance()
     print_dual_paper_trade_performance()
+    print_direction_paper_trade_performance()
     print_live_trade_performance()
     print_dual_live_trade_performance()
     print_prediction_performance()

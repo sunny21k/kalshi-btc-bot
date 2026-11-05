@@ -9,22 +9,25 @@ const { BotWorkspace } = await loadModule('../../src/components/bots/BotWorkspac
 const { BotControl } = await loadModule('../../src/components/bots/BotControl.tsx');
 const { DashboardHeader } = await loadModule('../../src/components/layout/DashboardHeader.tsx');
 const { normalizeDashboard } = await loadModule('../../src/lib/dashboard.ts');
+const { EntryDirection } = await loadModule('../../src/components/trades/EntryDirection.tsx');
+const { PerformanceStats } = await loadModule('../../src/components/performance/PerformanceStats.tsx');
+const { summarizeDays } = await loadModule('../../src/lib/performance.ts');
 const render = (component, props) => renderToStaticMarkup(React.createElement(component, props));
 const noAction = () => { throw new Error('Rendering must not submit bot commands'); };
 
 test('each bot workspace renders its controls, diagnostics, and distinct trade view without requests', (context) => {
   const fetch = context.mock.method(globalThis, 'fetch', noAction);
   const data = dashboardFixture();
-  for (const active of ['btc15_paper', 'btc15_dual_paper', 'btc15_live', 'btc15_dual_live', 'scalp_paper', 'shadow']) {
+  for (const active of ['btc15_paper', 'btc15_dual_paper', 'btc15_direction_paper', 'btc15_live', 'btc15_dual_live', 'scalp_paper', 'shadow']) {
     const html = render(BotWorkspace, { active, data, onAction: noAction });
     assert.match(html, active === 'shadow' ? /Recent Blocked Signals/ : /Bot diagnostics/);
     assert.match(html, /role="region"/);
     if (active.includes('live')) {
       assert.match(html, /Recent Live Orders/);
-      assert.match(html, /\$1\.0443/);
-      assert.match(html, /\+\$16\.5057/);
+      assert.match(html, /\$1\.04/);
+      assert.match(html, /\+\$16\.51/);
     }
-    if (active === 'scalp_paper') assert.match(html, /\+\$0\.002/);
+    if (active === 'scalp_paper') assert.match(html, /\$0\.00/);
     if (active.startsWith('btc15_')) assert.match(html, /title="KXBTC15M-26NOV040915-15"/);
   }
   assert.equal(fetch.mock.calls.length, 0);
@@ -38,6 +41,7 @@ test('missing legacy API fields are normalized without overwriting existing hist
   assert.equal(normalized.live, original.live);
   assert.equal(normalized.shadow, original.shadow);
   assert.equal(normalized.dualPaper.total, 0);
+  assert.equal(normalized.directionPaper.total, 0);
   assert.equal(normalized.dualLive.total, 0);
   assert.equal(normalized.scalp.open, 0);
   assert.deepEqual(normalized.bots, []);
@@ -47,7 +51,7 @@ test('missing legacy API fields are normalized without overwriting existing hist
 test('populated newer payloads retain their per-bot data and health', () => {
   const payload = dashboardFixture();
   const normalized = normalizeDashboard(payload);
-  for (const key of ['paper', 'dualPaper', 'live', 'dualLive', 'scalp', 'bots']) assert.equal(normalized[key], payload[key]);
+  for (const key of ['paper', 'dualPaper', 'directionPaper', 'live', 'dualLive', 'scalp', 'bots']) assert.equal(normalized[key], payload[key]);
 });
 
 test('terminal-managed bots do not expose a misleading dashboard start button', () => {
@@ -70,4 +74,24 @@ test('header keeps theme and refresh controls with the same busy states', () => 
   assert.match(light, /Updating\.\.\./);
   assert.match(light, /Stopping\.\.\./);
   assert.match(light, /disabled=""/);
+});
+
+test('entry directions distinguish saved evidence, historical inference, and uncertainty', () => {
+  const recorded = render(EntryDirection, { row: { entry_direction: 'DOWN', entry_direction_basis: 'RECORDED', entry_direction_match: 'MATCH' } });
+  assert.match(recorded, />BTC falling</);
+  assert.match(recorded, /Recorded/);
+  const inferred = render(EntryDirection, { row: { entry_direction: 'UP', entry_direction_basis: 'INFERRED', entry_direction_match: 'OPPOSITE' } });
+  assert.match(inferred, /Inferred/);
+  assert.match(inferred, /money-negative/);
+  assert.match(inferred, /exact bot source is unverified/);
+  assert.match(render(EntryDirection, { row: { entry_direction_basis: 'AMBIGUOUS' } }), /Uncertain/);
+  assert.match(render(EntryDirection, { row: {} }), /Unknown/);
+  assert.match(render(EntryDirection, { row: { fill_status: 'UNFILLED' } }), /No entry/);
+});
+
+test('performance metrics omit the removed drawdown tile', () => {
+  const html = render(PerformanceStats, { stats: summarizeDays([]), kind: 'paper' });
+  assert.doesNotMatch(html, /Max drawdown/);
+  assert.match(html, /Avg \/ trade/);
+  assert.match(html, /Net ROI/);
 });

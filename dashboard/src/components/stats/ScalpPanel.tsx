@@ -1,5 +1,5 @@
 import type { ScalpStats } from '../../types/trades';
-import { fmtPct, moneyClass } from '../../utils/format';
+import { fmtPct, moneyClass, tableMoney } from '../../utils/format';
 import { Metric } from './Metric';
 import { TradedTotal } from './TradedTotal';
 
@@ -15,8 +15,8 @@ export function ScalpPanel({ stats }: { stats: ScalpStats }) {
         <Metric label="Closed" value={stats.closed} />
         <Metric label="Open" value={stats.open} />
         <Metric label="Win Rate" value={fmtPct(stats.winRate)} />
-        <Metric label="P/L" value={`$${stats.profitLoss}`} tone={moneyClass(stats.profitLoss)} />
-        <Metric label="Peak P/L" value={`$${stats.peakProfit}`} tone={moneyClass(stats.peakProfit)} />
+        <Metric label="P/L" value={tableMoney(stats.profitLoss, true)} tone={moneyClass(stats.profitLoss)} />
+        <Metric label="Peak P/L" value={tableMoney(stats.peakProfit, true)} tone={moneyClass(stats.peakProfit)} />
       </div>
       <TradedTotal value={stats.totalInvested} />
     </section>

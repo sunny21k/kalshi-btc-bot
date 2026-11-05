@@ -4,6 +4,7 @@ import type { ScalpStats, ShadowStats, TradeStats } from './trades';
 export type DashboardStats = {
   paper: TradeStats;
   dualPaper: TradeStats;
+  directionPaper: TradeStats;
   live: TradeStats;
   dualLive: TradeStats;
   scalp: ScalpStats;
@@ -21,6 +22,7 @@ export type ResultSync = {
   summary: {
     paperSettled: number;
     dualPaperSettled: number;
+    directionPaperSettled?: number;
     liveSettled: number;
     predictionsRecorded: number;
     errorCount: number;

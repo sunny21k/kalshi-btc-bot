@@ -1,24 +1,30 @@
+import React from 'react';
 import type { TradeRow } from '../../types/trades';
 import { fmtDateTime, moneyClass, shortId, tableMoney } from '../../utils/format';
 import { TradeTable } from './TradeTable';
 import { TickerLabel } from './TickerLabel';
+import { EntryDirection } from './EntryDirection';
+import { TradeDetails } from './TradeDetails';
 
 export function RecentTrades({ title, rows, live }: { title: string; rows: TradeRow[]; live?: boolean }) {
   const items = rows ?? [];
+  const [selected, setSelected] = React.useState<TradeRow | null>(null);
+  const current = selected ? items.find(row => row.trade_id && row.trade_id === selected.trade_id) ?? selected : null;
 
   return (
-    <TradeTable title={title} count={items.length} variant={live ? 'live' : undefined}>
+    <><TradeTable title={title} count={items.length} variant={live ? 'live' : undefined}>
       <thead>
         <tr>
           <th scope="col">ID</th><th scope="col">Made</th><th scope="col">Ticker</th><th scope="col">Side</th><th scope="col" className="table-number">Entry</th>
           {live && <><th scope="col" className="table-number">Filled</th><th scope="col">Status</th><th scope="col" className="table-number">Fees</th></>}
+          <th scope="col" title="BTC price movement; click a trade for its source and observations">BTC at entry</th>
           <th scope="col">Result</th><th scope="col" className="table-number">{live ? 'Net P/L' : 'P/L'}</th><th scope="col">Strategy</th>
         </tr>
       </thead>
       <tbody>
         {items.map((row, index) => (
-          <tr key={`${row.trade_id || row.ticker}-${index}`}>
-            <td className="table-id muted-text" title={row.trade_id}>{shortId(row.trade_id) || '--'}</td>
+          <tr className="trade-row-clickable" onClick={() => setSelected(row)} key={`${row.trade_id || row.ticker}-${index}`}>
+            <td className="table-id muted-text" title={row.trade_id}><button type="button" className="trade-detail-trigger" onClick={() => setSelected(row)} aria-label={`View trade ${shortId(row.trade_id) || row.ticker} details`}>{shortId(row.trade_id) || 'View'}</button></td>
             <td className="table-time" title={row.timestamp}><time dateTime={row.timestamp}>{fmtDateTime(row.timestamp) || '--'}</time></td>
             <td><TickerLabel value={row.ticker} /></td>
             <td className="table-side">{row.side || '--'}</td>
@@ -30,6 +36,7 @@ export function RecentTrades({ title, rows, live }: { title: string; rows: Trade
               </td>
               <td className="table-number" title={row.fees_paid}>{tableMoney(row.fees_paid)}</td>
             </>}
+            <td><EntryDirection row={row} /></td>
             <td className={row.actual_result ? 'table-side' : 'muted-text'}>{row.actual_result || '--'}</td>
             <td className={`table-number table-profit ${row.profit_loss ? moneyClass(row.profit_loss) : 'muted-text'}`} title={row.profit_loss}>
               {row.profit_loss ? tableMoney(row.profit_loss, true) : live ? row.fill_status === 'UNFILLED' ? 'No fill' : row.fill_status === 'REJECTED' ? '--' : 'Pending' : '--'}
@@ -39,10 +46,10 @@ export function RecentTrades({ title, rows, live }: { title: string; rows: Trade
         ))}
         {!items.length && (
           <tr>
-            <td className="table-empty muted-text" colSpan={live ? 11 : 8}>No trades yet</td>
+            <td className="table-empty muted-text" colSpan={live ? 12 : 9}>No trades yet</td>
           </tr>
         )}
       </tbody>
-    </TradeTable>
+    </TradeTable>{current && <TradeDetails row={current} live={live} onClose={() => setSelected(null)} />}</>
   );
 }

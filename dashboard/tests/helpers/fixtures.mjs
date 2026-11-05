@@ -13,9 +13,9 @@ export function dashboardFixture() {
     yes: { ...side }, no: { ...side }, byStrategy: { strong_5m_50: { ...side } }, byTime: {},
     recent: [{ ...row }],
   });
-  const ids = ['btc15_paper', 'btc15_dual_paper', 'btc15_live', 'btc15_dual_live', 'scalp_paper'];
+  const ids = ['btc15_paper', 'btc15_dual_paper', 'btc15_direction_paper', 'btc15_live', 'btc15_dual_live', 'scalp_paper'];
   return {
-    paper: trade(), dualPaper: trade(), live: trade(), dualLive: trade(),
+    paper: trade(), dualPaper: trade(), directionPaper: trade(), live: trade(), dualLive: trade(),
     scalp: {
       total: 1, closed: 1, open: 0, wins: 1, losses: 0, winRate: 100,
       totalInvested: '0.8500', profitLoss: '0.0020', peakProfit: '0.0300', byReason: { 'trailing giveback': 1 },

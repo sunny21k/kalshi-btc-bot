@@ -6,13 +6,14 @@ from datetime import datetime, timezone
 DATA_FILE = "data/market_data.csv"
 
 
-def initialize_data_file():
-    os.makedirs("data", exist_ok=True)
+def initialize_data_file(data_file=None):
+    data_file = data_file or DATA_FILE
+    os.makedirs(os.path.dirname(data_file) or ".", exist_ok=True)
 
-    if os.path.exists(DATA_FILE):
+    if os.path.exists(data_file):
         return
 
-    with open(DATA_FILE, "w", newline="") as file:
+    with open(data_file, "w", newline="") as file:
         writer = csv.writer(file)
 
         writer.writerow([
@@ -41,11 +42,14 @@ def log_market_data(
     spread,
     edge,
     seconds_remaining,
+    *,
+    data_file=None,
 ):
 
-    initialize_data_file()
+    data_file = data_file or DATA_FILE
+    initialize_data_file(data_file)
 
-    with open(DATA_FILE, "a", newline="") as file:
+    with open(data_file, "a", newline="") as file:
 
         writer = csv.writer(file)
 

@@ -20,6 +20,8 @@ import dual_live_bot
 import kalshi_api
 import live_execution
 import performance
+from strategy import make_dual_live_decision, make_late_momentum_decision
+from entry_context import read_entry_contexts
 
 
 class DualLiveBotTests(unittest.TestCase):
@@ -59,7 +61,7 @@ class DualLiveBotTests(unittest.TestCase):
         row.update(overrides)
         return row
 
-    def run_bot(self, prices, seconds, *, ticker="KXBTC15M-TEST", budget="1.00"):
+    def run_bot(self, prices, seconds, *, ticker="KXBTC15M-TEST", budget="1.00", entry_price="0.80"):
         side = "YES" if prices[-1] > 82323 else "NO"
         create = Mock(return_value={"order_id": f"order-{ticker}", "fill_count": "1.00"})
         with (
@@ -87,8 +89,8 @@ class DualLiveBotTests(unittest.TestCase):
             mocks["get_seconds_remaining"].return_value = seconds
             mocks["get_orderbook"].return_value = {
                 "orderbook_fp": {
-                    "yes_dollars": [["0.78" if side == "YES" else "0.20", 10]],
-                    "no_dollars": [["0.78" if side == "NO" else "0.20", 10]],
+                    "yes_dollars": [[str(Decimal(entry_price) - Decimal('0.02')) if side == "YES" else str(1 - Decimal(entry_price)), 10]],
+                    "no_dollars": [[str(Decimal(entry_price) - Decimal('0.02')) if side == "NO" else str(1 - Decimal(entry_price)), 10]],
                 },
             }
             dual_live_bot.main()
@@ -123,6 +125,35 @@ class DualLiveBotTests(unittest.TestCase):
         self.assertEqual(4, len(rows))
         self.assertTrue(all(row["contracts"] == "1" and row["max_cost"] == "0.8000" for row in rows))
         self.assertTrue(all(row["bot_id"] == live_execution.DUAL_LIVE_BOT_ID for row in rows))
+
+    def test_strong_rule_under_80_cents_never_submits_but_late_rule_still_can(self):
+        for side, prices in (("YES", [82400, 82401, 82402]), ("NO", [82272, 82271, 82270])):
+            create, signal = self.run_bot(prices, 270, ticker=f"CHEAP-{side}", entry_price="0.79")
+            create.assert_not_called()
+            self.assertEqual("WAIT", signal["decision"])
+        create, signal = self.run_bot([82305, 82304, 82303], 180, ticker="LATE-CHEAP", entry_price="0.79")
+        create.assert_called_once()
+        self.assertEqual("BUY NO", signal["decision"])
+
+    def test_live_order_decision_observation_is_saved_before_mocked_submission(self):
+        self.run_bot([82272, 82271, 82270], 270)
+        row = live_execution.read_live_trade_rows()[0]
+        context = read_entry_contexts(self.path)[row["trade_id"]]
+        self.assertEqual("RECORDED", context["entry_direction_basis"])
+        self.assertEqual("DOWN", context["entry_direction"])
+        self.assertEqual("MATCH", context["entry_direction_match"])
+        self.assertEqual("82270", context["entry_btc_price"])
+
+    def test_strong_minimum_is_live_only_and_keeps_strong_priority(self):
+        for side, prices in (("YES", [1060, 1061, 1062]), ("NO", [940, 939, 938])):
+            args = dict(btc_price=prices[-1], target_price=1000, seconds_remaining=270,
+                        yes_ask='0.79', no_ask='0.79', recent_prices=prices, confirmation_count=3, enable_early_up=False)
+            self.assertEqual(f"BUY {side}", make_late_momentum_decision(**args)["decision"])
+            for seconds in (270, 180):
+                for price in ('0.75', '0.79', '0.7999', '0.9201'):
+                    self.assertEqual('WAIT', make_dual_live_decision(**{**args, 'seconds_remaining': seconds, 'yes_ask': price, 'no_ask': price})['decision'])
+                for price in ('0.80', '0.92'):
+                    self.assertEqual(f'BUY {side}', make_dual_live_decision(**{**args, 'seconds_remaining': seconds, 'yes_ask': price, 'no_ask': price})['decision'])
 
     def test_early_rule_and_undersized_distance_stay_disabled(self):
         for prices, seconds in (([82400, 82401, 82402], 500), ([82400, 82401, 82402], 301), ([82340, 82341, 82342], 270), ([82305, 82304, 82303], 30)):

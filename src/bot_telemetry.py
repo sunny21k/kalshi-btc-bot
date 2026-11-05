@@ -8,7 +8,7 @@ from pathlib import Path
 
 
 STATUS_DIR = Path(__file__).resolve().parents[1] / "data" / "bot_status"
-BOT_IDS = {"btc15_paper", "btc15_dual_paper", "btc15_live", "btc15_dual_live", "scalp_paper"}
+BOT_IDS = {"btc15_paper", "btc15_dual_paper", "btc15_direction_paper", "btc15_live", "btc15_dual_live", "scalp_paper"}
 
 
 def timestamp():

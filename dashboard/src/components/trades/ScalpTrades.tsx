@@ -1,22 +1,26 @@
+import React from 'react';
 import type { TradeRow } from '../../types/trades';
 import { fmtDateTime, moneyClass, shortId, tableMoney } from '../../utils/format';
 import { TradeTable } from './TradeTable';
+import { TradeDetails } from './TradeDetails';
 
 const eventClass = (event?: string) => event === 'OPEN' ? 'event-open' : event === 'CLOSE' ? 'event-close' : 'muted-text';
 const eventRowClass = (event?: string) => event === 'OPEN' ? 'event-row-open' : event === 'CLOSE' ? 'event-row-close' : '';
 
 export function ScalpTrades({ rows }: { rows: TradeRow[] }) {
   const items = rows ?? [];
+  const [selected, setSelected] = React.useState<TradeRow | null>(null);
+  const current = selected ? items.find(row => row.trade_id && row.trade_id === selected.trade_id && row.event === selected.event) ?? selected : null;
 
   return (
-    <TradeTable title="Recent Scalp Events" count={items.length} variant="scalp">
+    <><TradeTable title="Recent Scalp Events" count={items.length} variant="scalp">
       <thead>
         <tr><th scope="col">ID</th><th scope="col">Event</th><th scope="col">Side</th><th scope="col">Opened</th><th scope="col">Sold</th><th scope="col" className="table-number">Entry</th><th scope="col" className="table-number">Exit</th><th scope="col" className="table-number">P/L</th><th scope="col">Reason</th></tr>
       </thead>
       <tbody>
         {items.map((row, index) => (
-          <tr className={eventRowClass(row.event)} key={`${row.trade_id}-${row.event}-${index}`}>
-            <td className="table-id muted-text" title={row.trade_id}>{shortId(row.trade_id) || '--'}</td>
+          <tr className={`${eventRowClass(row.event)} trade-row-clickable`} onClick={() => setSelected(row)} key={`${row.trade_id}-${row.event}-${index}`}>
+            <td className="table-id muted-text" title={row.trade_id}><button type="button" className="trade-detail-trigger" onClick={() => setSelected(row)} aria-label={`View trade ${shortId(row.trade_id) || row.ticker} details`}>{shortId(row.trade_id) || 'View'}</button></td>
             <td className={`table-status ${eventClass(row.event)}`}>{row.event}</td>
             <td className="table-side">{row.side}</td>
             <td className="table-time" title={row.opened_at || (row.event === 'OPEN' ? row.timestamp : '')}>{fmtDateTime(row.opened_at || (row.event === 'OPEN' ? row.timestamp : '')) || '--'}</td>
@@ -33,6 +37,6 @@ export function ScalpTrades({ rows }: { rows: TradeRow[] }) {
           </tr>
         )}
       </tbody>
-    </TradeTable>
+    </TradeTable>{current && <TradeDetails row={current} onClose={() => setSelected(null)} />}</>
   );
 }

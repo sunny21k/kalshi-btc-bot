@@ -1,0 +1,34 @@
+import type { BotGuide, FaqQuestion } from '../types/help';
+
+export const GETTING_STARTED = [
+  { title: 'Choose a paper bot', description: 'Open Bots and select a paper bot in the sidebar. Its description explains which entries and exits it uses.' },
+  { title: 'Review the settings', description: 'Set the entry budget where available. Live bots also have a shared daily order limit and require confirmation before starting.' },
+  { title: 'Watch activity and results', description: 'Use Why no trade? and Bot health to understand activity. Review the trade table, then use Update results to check fills, fees, and settlements.' },
+];
+
+export const BOT_GUIDES: BotGuide[] = [
+  { name: '15m NO Only', mode: 'Paper', description: 'Tests NO entries in 15-minute BTC markets using the target-distance strategy. One entry per market.' },
+  { name: '15m YES / NO', mode: 'Paper', description: 'Tests both sides using the 4-minute/$10 and 5-minute/$50 rules, with price, momentum, confirmation, and spread checks.' },
+  { name: '15m Direction', mode: 'Paper', description: 'A separate YES/NO experiment. The 5-minute/$50 rule also requires three consecutive BTC moves: rising for YES or falling for NO. The 4-minute/$10 rule keeps its existing checks.' },
+  { name: '15m Live', mode: 'Live', description: 'The original live strategy. Uses the target-distance rules and retains the early upward-entry rule.' },
+  { name: 'YES / NO Live', mode: 'Live', description: 'Real YES/NO orders: the 4-minute/$10 rule allows 75–85¢ entries; the 5-minute/$50 rule allows 80–92¢. Uses the selected budget and shared live limits.' },
+  { name: 'Scalp Paper', mode: 'Paper', description: 'Uses short candle momentum for paper entries, then monitors stop-loss, trailing-profit, and candle-based exits. It can take multiple trades in a market.' },
+];
+
+export const FAQ_QUESTIONS: FaqQuestion[] = [
+  { id: 'entry-direction', category: 'Results', question: 'Can I see which way BTC was moving when a trade was bought?', answer: 'Click a trade or its ID to open details. BTC rising means the BTC price increased; BTC falling means it decreased. The bought YES/NO side is shown separately. Details include the BTC price, previous price, dollar and percentage move, and saved price sequence when available. Inferred historical values are estimates from shared logs. Live observations describe the order decision; the exact BTC price at exchange fill time was not recorded.' },
+  { id: 'paper-live', category: 'Basics', question: 'What is the difference between paper and live trading?', answer: 'Paper bots record simulated trades without submitting exchange orders. Live bots submit real orders; actual fills and fees can make their results different from paper results.' },
+  { id: 'budget', category: 'Settings', question: 'Does the entry budget mean dollars or contracts?', answer: 'It is the maximum entry cost per trade, before fees. The bot rounds down to whole contracts. For example, a $1 budget at an 80-cent entry allows one contract costing 80 cents, before fees. A fill can still be partial or absent.' },
+  { id: 'waiting', category: 'Activity', question: 'Why is a running bot not taking a trade?', answer: 'An entry must pass its strategy checks. Why no trade? shows the latest wait reason and execution blockers, including the daily cap or a previous attempt in that market. A running process alone does not mean a trade is eligible.' },
+  { id: 'daily-cap', category: 'Settings', question: 'How does the daily live order limit work?', answer: 'The limit counts attempts across both live bots by UTC day, including rejected or unfilled attempts. Select No daily cap to disable that limit. A daily order limit does not limit how much each individual trade can lose.' },
+  { id: 'unfilled', category: 'Orders', question: 'Why can a live order be unfilled or partly filled?', answer: 'Live entries use immediate-or-cancel orders. The available contracts at the submitted price may fill only part of the request or none of it. The Filled column shows the confirmed quantity; a submitted order is not the same as a completed purchase.' },
+  { id: 'paper-match', category: 'Orders', question: 'Should paper and live bots have identical trades?', answer: 'Corresponding bots use the same strategy rules, but sample prices independently. Timing, available prices, fills, budgets, and live limits can produce different entries and results.' },
+  { id: 'pending', category: 'Results', question: 'Why are fees or net P/L still pending?', answer: 'The bot needs confirmed fills, fees, and a final market result to report actual settled net P/L. Click Update results to reconcile them. Pending values stay unknown rather than being treated as zero profit.' },
+  { id: 'refresh', category: 'Results', question: 'Does Update results stop my bots?', answer: 'No. It checks fills, fees, and outcomes in the background. Stop refresh ends only that scan and keeps completed updates. Normal dashboard refreshes read local data and do not perform exchange reconciliation on their own.' },
+  { id: 'calendar', category: 'Results', question: 'Which dates do the performance graph and calendar use?', answer: 'Performance dates use New York time. The 15-minute bots group settled results by entry date; scalp results use the close date. Daily live limits use UTC, which is a separate reporting clock.' },
+  { id: 'heartbeat', category: 'Activity', question: 'What do heartbeat and stale updates mean?', answer: 'The heartbeat shows when the bot last reported activity, and Price received shows the age of its latest BTC price. A process can still exist while its data is stale. Bot health highlights stale updates and retains the latest API error, including when it recovered.' },
+  { id: 'stop', category: 'Controls', question: 'What happens when I press Stop or close the browser?', answer: 'Stop ends the selected bot process. It does not close existing live positions or cancel exchange orders. Closing the browser tab does not stop the bot server or its running processes; use the dashboard controls to stop managed bots.' },
+  { id: 'multiple', category: 'Controls', question: 'Can I run more than one bot?', answer: 'Paper bots can run alongside a live bot. The dashboard permits one live bot process at a time. Bots started in a terminal must be stopped from that terminal.' },
+  { id: 'scalp-live', category: 'Basics', question: 'Can Scalp Paper place real orders?', answer: 'No. The scalp bot in this release is paper only. It records simulated entries and exits separately from the live bots.' },
+  { id: 'hosted', category: 'Website', question: 'Can other people create accounts here yet?', answer: 'This release connects to your own bot server and does not include public accounts or shared hosting.' },
+];

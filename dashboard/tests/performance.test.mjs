@@ -103,5 +103,5 @@ test('empty ranges have no fabricated average, ratio, or chart', () => {
 test('tiny scalp returns are not rounded into apparently flat calendar days', () => {
   assert.equal(calendarProfit(0.002), '+<.01');
   assert.equal(calendarProfit(-0.002), '-<.01');
-  assert.equal(formatProfit(0.002), '+$0.002');
+  assert.equal(formatProfit(0.002), '+<$0.01');
 });

@@ -13,6 +13,7 @@ from pathlib import Path
 
 from kalshi_api import create_order, get_order_fills
 from trade_sizing import contracts_for_budget, parse_trade_budget
+from entry_context import append_entry_context
 
 
 LIVE_TRADE_FILE = "data/live_trades.csv"
@@ -329,9 +330,11 @@ def live_fill_status(row):
     return "FILLED" if count >= submitted else "PARTIAL"
 
 
-def append_live_trade_row(row):
+def append_live_trade_row(row, *, entry_context=None):
     with live_ledger_lock():
         _initialize_live_trade_file()
+        if entry_context is not None:
+            append_entry_context(LIVE_TRADE_FILE, row, entry_context)
         with open(LIVE_TRADE_FILE, "a", newline="") as file:
             writer = csv.DictWriter(file, fieldnames=FIELDNAMES)
             writer.writerow(row)
@@ -360,6 +363,7 @@ def place_live_trade(
     create_order_fn=create_order,
     bot_id=LEGACY_LIVE_BOT_ID,
     trade_budget=DEFAULT_LIVE_TRADE_BUDGET,
+    entry_context=None,
 ):
     trade_budget = parse_trade_budget(trade_budget)
     entry_price = normalize_live_entry_price(entry_price)
@@ -432,7 +436,7 @@ def place_live_trade(
     }
 
     # Reserve the market before sending an order, including across restarts.
-    append_live_trade_row(base_row)
+    append_live_trade_row(base_row, entry_context=entry_context)
     try:
         response = create_order_fn(
             ticker,

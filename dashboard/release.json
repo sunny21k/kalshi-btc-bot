@@ -1,0 +1,46 @@
+{
+  "version": "1.0.3",
+  "sourceHash": "d96fb21c2af55567a5f87a4d0b7fb2f74b39f0e4ffd639247757dfd00ddceead",
+  "releases": [
+    {
+      "version": "1.0.3",
+      "date": "2026-11-05",
+      "title": "Dashboard update",
+      "changes": [
+        "Raised YES/NO live 5-minute/$50 entries to 80-92c.",
+        "Formatted dashboard currency to two decimals.",
+        "Added clickable trade details with BTC movement, observations, and source confidence."
+      ]
+    },
+    {
+      "version": "1.0.2",
+      "date": "2026-11-05",
+      "title": "Dashboard update",
+      "changes": [
+        "Added a separate paper bot requiring three matching BTC moves for the 5-minute/$50 entry rule.",
+        "Added BTC entry direction observations and a historical trade audit with inferred and uncertain labels.",
+        "Removed the Max drawdown statistic."
+      ]
+    },
+    {
+      "version": "1.0.1",
+      "date": "2026-11-05",
+      "title": "Dashboard update",
+      "changes": [
+        "Removed Future ideas from Info & FAQ.",
+        "Increased help text size and moved the version link to the footer.",
+        "Switched page navigation to clean URLs with browser history support."
+      ]
+    },
+    {
+      "version": "1.0.0",
+      "date": "2026-11-05",
+      "title": "Versioning and help pages",
+      "changes": [
+        "Added a visible application version and release history.",
+        "Added Info & FAQ with a getting-started guide, bot explanations, and searchable questions.",
+        "Added a proposals section for larger future features."
+      ]
+    }
+  ]
+}

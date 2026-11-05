@@ -9,10 +9,12 @@ from decimal import Decimal
 from pathlib import Path
 
 from trade_sizing import contracts_for_budget as size_contracts
+from entry_context import append_entry_context
 
 
 TRADE_FILE = "data/paper_trades.csv"
 DUAL_TRADE_FILE = "data/dual_paper_trades.csv"
+DIRECTION_TRADE_FILE = "data/direction_paper_trades.csv"
 PAPER_TRADE_BUDGET = Decimal("100")
 FIELDNAMES = [
     "timestamp",
@@ -189,6 +191,7 @@ def record_paper_trade(
     contracts=1,
     *,
     trade_file=None,
+    entry_context=None,
 ):
     trade_file = trade_file or TRADE_FILE
 
@@ -224,6 +227,8 @@ def record_paper_trade(
             "profit_loss": "",
             "correct": "",
         }
+        if entry_context is not None:
+            append_entry_context(trade_file, row, entry_context)
         with open(trade_file, "a", newline="") as file:
             csv.DictWriter(file, fieldnames=FIELDNAMES).writerow(row)
 

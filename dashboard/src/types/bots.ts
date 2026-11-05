@@ -40,4 +40,4 @@ export type BotStatus = {
 export type BotCommand = 'start' | 'stop';
 export type BotAction = (botId: string, action: BotCommand, tradeBudget?: string, dailyLiveOrderLimit?: string) => void;
 
-export type TabId = 'btc15_paper' | 'btc15_dual_paper' | 'btc15_live' | 'btc15_dual_live' | 'scalp_paper' | 'shadow';
+export type TabId = 'btc15_paper' | 'btc15_dual_paper' | 'btc15_direction_paper' | 'btc15_live' | 'btc15_dual_live' | 'scalp_paper' | 'shadow';

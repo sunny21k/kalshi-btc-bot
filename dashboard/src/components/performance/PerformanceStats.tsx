@@ -17,7 +17,6 @@ export function PerformanceStats({ stats, kind }: { stats: PerformanceSummary; k
     <dl className="performance-statistics">
       {metric('Avg / trade', <span className={profitTone(stats.average ?? 0)}>{stats.average === null ? '--' : formatProfit(stats.average)}</span>)}
       {metric('Profit factor', stats.profitFactor !== null ? stats.profitFactor.toFixed(2) : stats.grossProfit > 0 ? 'No losses' : '--', undefined, 'Net profits from profitable trades divided by net losses from losing trades')}
-      {metric('Max drawdown', <span className={stats.maxDrawdown > 0 ? 'money-negative' : ''}>{formatProfit(-stats.maxDrawdown)}</span>, undefined, 'Largest peak-to-trough loss within this range, including intraday trades')}
       {metric('Best day', stats.bestDay ? <span className={profitTone(Number(stats.bestDay.profitLoss))}>{formatProfit(Number(stats.bestDay.profitLoss))}</span> : '--', stats.bestDay ? formatDay(stats.bestDay.date) : undefined)}
       {metric('Worst day', stats.worstDay ? <span className={profitTone(Number(stats.worstDay.profitLoss))}>{formatProfit(Number(stats.worstDay.profitLoss))}</span> : '--', stats.worstDay ? formatDay(stats.worstDay.date) : undefined)}
       {kind === 'live'

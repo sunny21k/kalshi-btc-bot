@@ -16,15 +16,16 @@ import { ShadowTrades } from '../trades/ShadowTrades';
 export function BotWorkspace({ active, data, onAction }: { active: TabId; data: DashboardStats; onAction: BotAction }) {
   const botById = Object.fromEntries((data.bots ?? []).map((bot) => [bot.id, bot]));
 
-  if (active === 'btc15_paper' || active === 'btc15_dual_paper') {
-    const stats = active === 'btc15_dual_paper' ? data.dualPaper : data.paper;
+  if (active === 'btc15_paper' || active === 'btc15_dual_paper' || active === 'btc15_direction_paper') {
+    const stats = active === 'btc15_direction_paper' ? data.directionPaper : active === 'btc15_dual_paper' ? data.dualPaper : data.paper;
+    const title = active === 'btc15_direction_paper' ? '15m Direction Paper Trading' : active === 'btc15_dual_paper' ? '15m YES/NO Paper Trading' : '15m Paper Trading';
     return (
       <div className="bot-workspace grid gap-3">
         <BotPerformance key={active} data={stats.performance} />
         <div className="bot-overview">
           <BotControl key={active} bot={botById[active]} onAction={onAction} />
           <BotDiagnostics runtime={botById[active]?.runtime} />
-          <TradePanel title={active === 'btc15_dual_paper' ? '15m YES/NO Paper Trading' : '15m Paper Trading'} stats={stats} />
+          <TradePanel title={title} stats={stats} />
         </div>
         <RecentTrades title="Recent Paper Trades" rows={stats.recent} />
         <BucketTable title="Paper by Strategy" buckets={stats.byStrategy} />

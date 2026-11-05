@@ -38,6 +38,7 @@ export function normalizeDashboard(payload: DashboardStats): DashboardStats {
     ...payload,
     bots: payload.bots ?? [],
     dualPaper: payload.dualPaper ?? emptyTrade,
+    directionPaper: payload.directionPaper ?? emptyTrade,
     dualLive: payload.dualLive ?? emptyTrade,
     scalp: payload.scalp ?? emptyScalp,
   };

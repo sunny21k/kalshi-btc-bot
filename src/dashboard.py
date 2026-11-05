@@ -26,7 +26,9 @@ from live_execution import (
     quarantined_non_order_fragment,
 )
 from bot_telemetry import runtime_status
-from paper_execution import DUAL_TRADE_FILE, PAPER_TRADE_BUDGET
+from paper_execution import DIRECTION_TRADE_FILE, DUAL_TRADE_FILE, PAPER_TRADE_BUDGET
+from entry_context import attach_entry_directions
+from trade_direction_audit import REPORT_FILE as DIRECTION_AUDIT_FILE
 from prediction_tracker import refresh_results
 from performance_analytics import build_performance
 from trade_sizing import parse_trade_budget
@@ -37,6 +39,7 @@ DATA_DIR = ROOT / "data"
 DASHBOARD_DIST = ROOT / "dashboard" / "dist"
 PAPER_FILE = DATA_DIR / "paper_trades.csv"
 DUAL_PAPER_FILE = ROOT / DUAL_TRADE_FILE
+DIRECTION_PAPER_FILE = ROOT / DIRECTION_TRADE_FILE
 LIVE_FILE = DATA_DIR / "live_trades.csv"
 SHADOW_FILE = DATA_DIR / "shadow_signals.csv"
 SCALP_FILE = DATA_DIR / "scalp_paper_trades.csv"
@@ -85,6 +88,19 @@ BOTS = {
         "budgetEnv": "KALSHI_PAPER_TRADE_BUDGET",
         "defaultTradeBudget": PAPER_TRADE_BUDGET,
     },
+    "btc15_direction_paper": {
+        "name": "15m Direction Paper Bot",
+        "script": "direction_paper_bot.py",
+        "mode": "paper",
+        "description": (
+            "YES/NO paper entries using 4m/$10 and 5m/$50 rules. "
+            "The 5-minute rule needs 3 consecutive BTC moves in the buy direction: "
+            "up for YES, down for NO. One entry per market."
+        ),
+        "env": {"KALSHI_LIVE_TRADING": "false"},
+        "budgetEnv": "KALSHI_PAPER_TRADE_BUDGET",
+        "defaultTradeBudget": PAPER_TRADE_BUDGET,
+    },
     "btc15_live": {
         "name": "15m Live Bot",
         "script": "bot.py",
@@ -102,7 +118,7 @@ BOTS = {
         "script": "dual_live_bot.py",
         "mode": "live",
         "description": (
-            "Live YES/NO trades using the 4m/$10 and 5m/$50 rules. "
+            "Live YES/NO: 4m/$10 at 75–85c, or 5m/$50 at 80–92c. "
             "One entry per market."
         ),
         "env": {"KALSHI_LIVE_TRADING": "true"},
@@ -276,18 +292,24 @@ def scalp_stats(rows):
 
 
 def build_payload():
-    live_rows = read_csv(LIVE_FILE)
-    paper_rows = read_csv(PAPER_FILE)
-    dual_paper_rows = read_csv(DUAL_PAPER_FILE)
+    audit_rows = read_csv(ROOT / DIRECTION_AUDIT_FILE)
+    def entries(path):
+        return attach_entry_directions(read_csv(path), path, audit_rows)
+    live_rows = entries(LIVE_FILE)
+    paper_rows = entries(PAPER_FILE)
+    dual_paper_rows = entries(DUAL_PAPER_FILE)
+    direction_paper_rows = entries(DIRECTION_PAPER_FILE)
     return {
         "paper": trade_stats(paper_rows, cost_field="cost"),
         "dualPaper": trade_stats(dual_paper_rows, cost_field="cost"),
+        "directionPaper": trade_stats(direction_paper_rows, cost_field="cost"),
         "live": live_trade_stats(live_rows, bot_id=LEGACY_LIVE_BOT_ID),
         "dualLive": live_trade_stats(live_rows, bot_id=DUAL_LIVE_BOT_ID),
         "scalp": scalp_stats(read_csv(SCALP_FILE)),
         "shadow": shadow_stats(read_csv(SHADOW_FILE)),
         "bots": bot_statuses(ledger_rows={
             "btc15_paper": paper_rows, "btc15_dual_paper": dual_paper_rows,
+            "btc15_direction_paper": direction_paper_rows,
             "btc15_live": live_rows, DUAL_LIVE_BOT_ID: live_rows,
         }),
         "resultSync": result_sync_status(),

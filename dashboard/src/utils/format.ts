@@ -25,6 +25,6 @@ export function tableMoney(value?: string, signed = false) {
   if (!Number.isFinite(amount)) return value;
   return amount.toLocaleString('en-US', {
     style: 'currency', currency: 'USD', signDisplay: signed ? 'exceptZero' : 'auto',
-    minimumFractionDigits: 2, maximumFractionDigits: 4,
+    minimumFractionDigits: 2, maximumFractionDigits: 2,
   });
 }

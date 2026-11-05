@@ -14,7 +14,7 @@ export function ResultSyncStatus({ sync, pending, error }: { sync?: ResultSync; 
         {busy ? <RefreshCw size={15} className="mt-0.5 shrink-0 animate-spin" /> : failed || summary?.errorCount ? <AlertTriangle size={15} className="mt-0.5 shrink-0" /> : null}
         <span className="min-w-0 break-words">
           {busy ? `${sync?.stopping ? 'Stopping after the current check...' : 'Updating fills, fees, and settlements...'}${summary?.checked !== undefined ? ` ${summary.checked} check${summary.checked === 1 ? '' : 's'} finished.` : ''}${error ? ` ${error}` : ''}` : failed ? `Results update failed: ${failed}` : summary
-            ? `${summary.stopped ? 'Refresh stopped' : 'Results checked'} ${fmtDateTime(sync?.completedAt ?? '')}. Settled: ${summary.liveSettled} live, ${summary.paperSettled + summary.dualPaperSettled} paper. New predictions: ${summary.predictionsRecorded}.${summary.stopped ? ' Saved updates kept; unchecked trades are unchanged.' : ''}${summary.errorCount ? ` ${summary.errorCount} checks need attention.` : ''}`
+            ? `${summary.stopped ? 'Refresh stopped' : 'Results checked'} ${fmtDateTime(sync?.completedAt ?? '')}. Settled: ${summary.liveSettled} live, ${summary.paperSettled + summary.dualPaperSettled + (summary.directionPaperSettled ?? 0)} paper. New predictions: ${summary.predictionsRecorded}.${summary.stopped ? ' Saved updates kept; unchecked trades are unchanged.' : ''}${summary.errorCount ? ` ${summary.errorCount} checks need attention.` : ''}`
             : 'Results updated.'}
         </span>
       </div>

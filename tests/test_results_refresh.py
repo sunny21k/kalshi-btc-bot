@@ -26,7 +26,7 @@ def empty_sync():
 
 
 def summary():
-    return dict(paperSettled=1, dualPaperSettled=1, liveSettled=1, predictionsRecorded=1,
+    return dict(paperSettled=1, dualPaperSettled=1, directionPaperSettled=0, liveSettled=1, predictionsRecorded=1,
                 errors=[], errorCount=0, checked=4, stopped=False)
 
 
@@ -44,6 +44,7 @@ class ResultsRefreshTests(unittest.TestCase):
             (paper_execution, "TRADE_FILE", self.paper_file),
             (live_execution, "LIVE_TRADE_FILE", self.live_file),
             (prediction_tracker, "DUAL_TRADE_FILE", self.dual_file),
+            (prediction_tracker, "DIRECTION_TRADE_FILE", str(self.root / "direction.csv")),
             (prediction_tracker, "DATA_FILE", self.market_file),
             (prediction_tracker, "RESULTS_FILE", self.result_file),
             (prediction_tracker, "RunLock", lambda name: RunLock(str(self.root / name))),
@@ -95,6 +96,14 @@ class ResultsRefreshTests(unittest.TestCase):
             self.assertEqual("0.2000", paper_execution.read_trade_rows(path)[0]["profit_loss"])
         with open(self.result_file, newline="") as file:
             self.assertEqual("True", next(csv.DictReader(file))["correct"])
+
+    def test_direction_paper_ledger_is_settled_using_the_same_cached_result(self):
+        path = str(self.root / "direction.csv")
+        self.record_paper("SHARED", trade_file=path)
+        result, markets, _ = self.refresh()
+        self.assertEqual(1, result["directionPaperSettled"])
+        self.assertEqual("0.2000", paper_execution.read_trade_rows(path)[0]["profit_loss"])
+        markets.assert_called_once_with("SHARED")
 
     def test_pending_market_updates_fees_without_fabricating_settlement(self):
         result, _, _ = self.refresh(result=None)

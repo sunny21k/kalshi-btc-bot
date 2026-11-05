@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 from btc_feed import get_btc_price
+from entry_context import make_entry_context
 from bot_telemetry import BotTelemetry
 from requests.exceptions import RequestException
 from kalshi_api import get_markets_for_series, get_orderbook
@@ -159,6 +160,9 @@ def main(
     live_enabled=None,
     paper_sides=("NO",),
     paper_trade_file=None,
+    paper_bot_id=None,
+    market_data_file=None,
+    decision_fn=None,
     live_bot_id=LEGACY_LIVE_BOT_ID,
     enable_early_up=True,
     bot_name="BTC 15M BOT",
@@ -173,8 +177,9 @@ def main(
             str(DEFAULT_LIVE_TRADE_BUDGET if live_enabled else PAPER_TRADE_BUDGET),
         )
     trade_budget = parse_trade_budget(trade_budget)
+    bot_id = live_bot_id if live_enabled else (paper_bot_id or ("btc15_dual_paper" if paper_trade_file else "btc15_paper"))
     telemetry = BotTelemetry(
-        live_bot_id if live_enabled else ("btc15_dual_paper" if paper_trade_file else "btc15_paper"),
+        bot_id,
         poll_seconds=POLL_SECONDS,
         settings={"dailyLimit": MAX_LIVE_TRADES_PER_DAY if live_enabled else None, "tradeBudget": str(trade_budget)},
     )
@@ -208,6 +213,7 @@ def main(
                 str(get_btc_price())
             )
             telemetry.price(btc_price)
+            price_observed_at = datetime.now(timezone.utc).isoformat()
             recent_btc_prices.append(btc_price)
 
             source = "Kalshi"
@@ -278,7 +284,7 @@ def main(
                     confirmation_counts[(ticker, "YES")] = 0
                     confirmation_counts[(ticker, "NO")] = 0
 
-            trade_signal = make_late_momentum_decision(
+            trade_signal = (decision_fn or make_late_momentum_decision)(
                 btc_price=btc_price,
                 target_price=target_price,
                 seconds_remaining=seconds_remaining,
@@ -341,6 +347,7 @@ def main(
                 spread=spread,
                 edge=edge,
                 seconds_remaining=seconds_remaining,
+                **({"data_file": market_data_file} if market_data_file else {}),
             )
 
             print()
@@ -460,6 +467,10 @@ def main(
                             exchange_index=market.get("exchange_index"),
                             bot_id=live_bot_id,
                             trade_budget=trade_budget,
+                            entry_context=make_entry_context(
+                                recent_btc_prices, side=side, bot_id=bot_id,
+                                observed_at=price_observed_at,
+                            ),
                         )
 
                     else:
@@ -476,6 +487,10 @@ def main(
                             seconds_remaining=seconds_remaining,
                             contracts=contracts,
                             trade_file=paper_trade_file,
+                            entry_context=make_entry_context(
+                                recent_btc_prices, side=side, bot_id=bot_id,
+                                observed_at=price_observed_at,
+                            ),
                         )
 
                     telemetry.decide(

@@ -35,13 +35,137 @@ PYTHONPATH=src python src/prediction_tracker.py
 PYTHONPATH=src python src/performance.py
 ```
 
+## Direction Paper Bot
+
+`src/direction_paper_bot.py` is a separate paper experiment. It keeps the
+4-minute/$10 rule. Its 5-minute/$50 rule additionally requires **three
+consecutive BTC moves in the bought side's direction**: all rising for YES,
+all falling for NO. Flat moves, a reversal inside that four-price window, or
+insufficient observations block the strong rule. These are BTC price polls,
+normally five seconds apart, rather than exchange contract prices or candles.
+The existing price bands, spread filter, confirmations, final-30-second cutoff,
+and one-entry-per-market rule still apply. The strong rule takes priority even
+inside four minutes; it cannot bypass the direction check via the late rule.
+
+```sh
+PYTHONPATH=src python src/direction_paper_bot.py
+```
+
+It is forced to paper mode even if live trading is enabled in the environment.
+The default budget is $100 before fees, with the usual editable paper budget.
+Trades go to `data/direction_paper_trades.csv`, observations to
+`data/direction_market_data.csv`, and dashboard output to
+`data/bot_logs/btc15_direction_paper.log`. It has its own process lock and can
+run alongside the other bots. Restart the dashboard to register it, then
+choose **15m Direction**. The existing result-refresh button and performance
+CLI include this bot's settlements and independent statistics.
+
+### Inspect entry directions
+
+New entries made by the updated runner save the BTC observations used at the
+paper-entry or live-order decision in `<trade ledger>.entries.jsonl`, keyed by
+trade ID. The main trade CSV schema and old rows stay intact. Click a trade
+row or its ID to open details, including the BTC price, previous price, dollar
+and percentage movement, source confidence, and saved price window when
+available. Rising/falling refers to the BTC price movement; the purchased
+YES/NO contract and final outcome are shown separately. Historical inferred
+previous prices are reconstructed from the recorded BTC price and percent
+change and are labeled as estimates. Live snapshots describe the decision,
+not the exact exchange fill time. Existing bot processes must restart to
+load observation recording.
+
+Dashboard dollar amounts display two decimal places. Internal calculations,
+CSV records, and execution prices retain their precision. Tiny nonzero chart
+values can be marked below one cent rather than being presented as zero.
+
+To inspect historical paper trades and filled live orders:
+
+```sh
+PYTHONPATH=src python src/trade_direction_audit.py
+```
+
+This writes `data/trade_direction_audit.csv` and does not edit input ledgers
+or submit orders. It streams the market logs once and matches the ticker,
+entry quote, and countdown where recorded. Only observations at most two
+seconds **before** the entry are eligible. It uses `btc_change`, not the
+strategy prediction, to infer movement. Interleaved logs lack a bot ID, so
+historical directions are labeled **Inferred**. Conflicting matches are
+**Uncertain**; absent evidence remains **Unknown**. Old logs cannot prove the
+entire three-move window or reconstruct whether the new strategy would trade.
+Saved entry observations take precedence and are labeled **Recorded**.
+
+The dashboard reads this small report on its normal refresh instead of
+scanning the full market log each time. Rerun the audit to include later old
+entries. Use `--trades path/to/trades.csv`, repeatable `--market-data`, or
+`--output` to choose other inputs and a report location. Unfilled or rejected
+live attempts are excluded from purchases.
+
+### Backtest the direction bot offline
+
+Replay the recorded observations using a $100 entry budget:
+
+```sh
+PYTHONPATH=src python src/backtest_direction.py
+```
+
+Outputs are separate from all trading ledgers:
+
+- `data/backtests/direction/report.md`: original versus direction-filtered rules,
+  with counts, P/L, ROI, and breakdowns by rule and side.
+- `data/backtests/direction/trades.csv`: every simulated entry and its price window.
+- `data/backtests/direction/summary.json`: full results, source metadata, and exclusions.
+
+This command is entirely offline and cannot place orders. It runs the current
+YES/NO strategy and the new direction variant on the same reconstructed
+5-second observation stream. It freezes input copies before replay, so running
+bots may continue writing their logs. Snapshot sizes and hashes are recorded
+with the results. It reads historical outcomes only for settlement,
+sizes each entry from its recorded ask, and allows one entry per market per
+variant. A missing outcome stays pending rather than becoming a win or loss.
+
+Historical logs combine multiple bots and omit per-bot IDs, so this is an
+**approximate replay**, not an exact reconstruction of the original processes.
+Targets are recovered from earlier matching shadow observations and carried
+forward only after becoming known. The backtest never fills in an earlier
+target from a later observation. Conflicting target markets are excluded;
+gaps over 30 seconds reset history and confirmation counters. Rows before
+target observations became available cannot produce entries.
+
+Gross P/L excludes fees and assumes the entire order fills at the quoted ask;
+historical depth and actual slippage are unavailable. The report also shows
+a hypothetical one-cent cost per contract, which is not an exchange fee quote.
+Previously observed data is not an independent forward test.
+
+Options include `--budget`, `--sample-seconds`, `--max-gap-seconds`, and an
+explicit assumed total `--cost-per-contract`. Use `--output-dir` for separate
+experiments, repeat `--market-data` and `--results` for custom inputs, or choose
+the shadow file with `--shadow-data`. For example:
+
+```sh
+PYTHONPATH=src python src/backtest_direction.py --budget 100 --cost-per-contract 0.01 --output-dir data/backtests/direction_cost_test
+```
+
 ## YES/NO Live Bot
 
-`src/dual_live_bot.py` uses the same `late_4m_10` and `strong_5m_50` rules
-and entry filters as the YES/NO paper bot. The 9-minute rule stays disabled.
+`src/dual_live_bot.py` uses `late_4m_10` at **75–85¢** and `strong_5m_50` at
+**80–92¢**, retaining the existing momentum, confirmation, spread, and chase
+checks. The strong rule takes priority when both rules match, so a 75–79¢
+strong-rule entry cannot fall back to the late rule. The 9-minute rule stays
+disabled. Paper bots and the original live bot retain their own entry bands.
 It is real trading. Its default entry budget is **$1 per trade**, separate from
 the $100 paper default. Both budgets can be changed before starting a bot.
 It holds filled contracts to settlement; there is no scalp exit or stop-loss order.
+
+Compare the old 75¢ strong-rule minimum with the 80¢ minimum offline:
+
+```sh
+PYTHONPATH=src python src/backtest_direction.py --compare strong-min-80
+```
+
+The default $100-budget comparison is saved separately in
+`data/backtests/live_80c/`. It uses the same approximate observation replay
+and cost limitations described above. This comparison changes only the
+strong-rule minimum, without adding the direction-paper bot's three-move filter.
 
 Restart the dashboard, choose **YES / NO Live**, and use **Start** to enable it.
 The dashboard asks for confirmation before starting real-money trading. To
@@ -85,8 +209,7 @@ for its P/L, profitable/losing/flat trade counts, and actual settled live fees.
 Month arrows change both the calendar and the chart range.
 
 Additional range statistics include average P/L per trade, profit factor,
-maximum drawdown, best/worst day, and settled fees or paper ROI. Drawdown
-includes the chronological intraday trade path, not only end-of-day totals.
+best/worst day, and settled fees or paper ROI.
 Fees are already included in live net P/L and are not subtracted twice.
 
 All dates use `America/New_York`, including daylight-saving transitions.
@@ -106,6 +229,12 @@ Run analytics tests with `python -m unittest discover -s tests` and, from
 `dashboard`, `npm test`. Rebuild the frontend with `npm run build` after changes.
 See [the frontend guide](dashboard/README.md) for the component structure and
 where to make dashboard changes.
+
+The header includes an **Info & FAQ** page with a bot guide, searchable
+questions, and release history. A subtle footer link shows the version.
+Changed frontend builds advance the patch version automatically; rebuilding
+unchanged source keeps the same version. See the frontend guide for release
+notes and larger version bumps.
 
 ## Entry Reasons And Bot Health
 

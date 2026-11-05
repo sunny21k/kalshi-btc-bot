@@ -33,10 +33,11 @@ export function formatMonth(value: string) {
 }
 
 export function formatProfit(value: number, compact = false, signed = true) {
+  if (!compact && value !== 0 && Math.abs(value) < 0.005) return `${value < 0 ? '-' : signed ? '+' : ''}<$0.01`;
   return value.toLocaleString('en-US', {
     style: 'currency', currency: 'USD', signDisplay: signed ? 'exceptZero' : 'auto',
     minimumFractionDigits: compact ? 0 : 2,
-    maximumFractionDigits: compact ? 1 : Math.abs(value) > 0 && Math.abs(value) < 0.01 ? 4 : 2,
+    maximumFractionDigits: compact ? 1 : 2,
     ...(compact ? { notation: 'compact' as const } : {}),
   });
 }
