@@ -1,40 +1,54 @@
 import type { DashboardStats } from '../../types/dashboard';
 import type { TabId } from '../../types/bots';
+import { BOT_NAMES, BOT_NAV_GROUPS } from '../../content/bots';
+
+function tradeCount(total: number): string {
+  return `${total} ${total === 1 ? 'trade' : 'trades'}`;
+}
 
 export function BotSidebar({ active, onChange, data }: { active: TabId; onChange: (tab: TabId) => void; data: DashboardStats }) {
   const botById = Object.fromEntries((data.bots ?? []).map((bot) => [bot.id, bot]));
-  const tabs: Array<{ id: TabId; label: string; detail: string; running?: boolean }> = [
-    { id: 'btc15_paper', label: '15m NO Only', detail: `${data.paper.total} trades`, running: botById.btc15_paper?.running },
-    { id: 'btc15_dual_paper', label: '15m YES / NO', detail: `${data.dualPaper.total} trades`, running: botById.btc15_dual_paper?.running },
-    { id: 'btc15_direction_paper', label: '15m Direction', detail: `${data.directionPaper.total} trades`, running: botById.btc15_direction_paper?.running },
-    { id: 'btc15_live', label: '15m Live', detail: `${data.live.total} trades`, running: botById.btc15_live?.running },
-    { id: 'btc15_dual_live', label: 'YES / NO Live', detail: `${data.dualLive.total} trades`, running: botById.btc15_dual_live?.running },
-    { id: 'scalp_paper', label: 'Scalp Paper', detail: `${data.scalp.total} entries`, running: botById.scalp_paper?.running },
-    { id: 'shadow', label: 'Blocked Signals', detail: `${data.shadow.total} logged` },
-  ];
+  const details: Record<TabId, string> = {
+    btc15_paper: tradeCount(data.paper.total),
+    btc15_dual_paper: tradeCount(data.dualPaper.total),
+    btc15_direction_paper: tradeCount(data.directionPaper.total),
+    scalp_paper: `${data.scalp.total} ${data.scalp.total === 1 ? 'entry' : 'entries'}`,
+    btc15_live: tradeCount(data.live.total),
+    btc15_dual_live: tradeCount(data.dualLive.total),
+    shadow: `${data.shadow.total} logged`,
+  };
 
   return (
     <aside className="surface-sidebar border-r">
-      <div className="px-4 py-4">
-        <div className="mb-3 text-xs font-semibold uppercase tracking-wide muted-text">Bots</div>
-        <div className="bot-nav-grid grid gap-1">
-        {tabs.map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => onChange(tab.id)}
-            className={`tab-button px-3 py-3 text-left ${active === tab.id ? 'tab-button-active' : ''}`}
-          >
-            <div className="flex items-center justify-between gap-2">
-              <span className="font-semibold">{tab.label}</span>
-              {tab.running !== undefined && (
-                <span className={`h-2.5 w-2.5 rounded-full ${tab.running ? 'status-dot-running' : 'status-dot-stopped'}`} />
-              )}
+      <nav className="bot-navigation" aria-label="Bot workspaces">
+        {BOT_NAV_GROUPS.map((group) => (
+          <section key={group.id} className="bot-nav-group" aria-labelledby={`bot-group-${group.id}`}>
+            <h2 id={`bot-group-${group.id}`} className="bot-nav-heading">{group.label}</h2>
+            <div className="bot-nav-grid">
+              {group.tabs.map((id) => {
+                const bot = botById[id];
+                const running = bot && (bot.running || !!bot.runtime?.processAlive);
+                return (
+                  <button
+                    key={id}
+                    onClick={() => onChange(id)}
+                    aria-current={active === id ? 'true' : undefined}
+                    className={`tab-button ${active === id ? 'tab-button-active' : ''}`}
+                  >
+                    <span className="bot-nav-title">
+                      <span>{id === 'shadow' ? 'Blocked Signals' : BOT_NAMES[id]}</span>
+                      {bot && (
+                        <span aria-label={running ? 'Running' : 'Stopped'} className={`bot-nav-status ${running ? 'status-dot-running' : 'status-dot-stopped'}`} />
+                      )}
+                    </span>
+                    <span className="bot-nav-detail">{details[id]}</span>
+                  </button>
+                );
+              })}
             </div>
-            <div className="muted-text mt-1 text-xs">{tab.detail}</div>
-          </button>
+          </section>
         ))}
-        </div>
-      </div>
+      </nav>
     </aside>
   );
 }

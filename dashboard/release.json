@@ -1,7 +1,15 @@
 {
-  "version": "1.0.4",
-  "sourceHash": "c1bc0a2f316eb5eedcd4f9b7663b9ec2d20a8a00591a91d87e678c6a08c859fe",
+  "version": "1.0.5",
+  "sourceHash": "329f2b2182b470112941c90b194ec8298556752cda5aac514ca74abfba3febf7",
   "releases": [
+    {
+      "version": "1.0.5",
+      "date": "2026-11-05",
+      "title": "Dashboard update",
+      "changes": [
+        "Grouped paper and live bots in the sidebar, separated activity logs, and clarified bot names with stronger headings."
+      ]
+    },
     {
       "version": "1.0.4",
       "date": "2026-11-05",

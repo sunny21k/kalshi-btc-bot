@@ -1,6 +1,7 @@
 import React from 'react';
 import { sendBotAction } from '../api/dashboard';
 import type { BotCommand, BotStatus } from '../types/bots';
+import { botDisplayName } from '../content/bots';
 
 export function useBotActions(bots: BotStatus[], load: () => Promise<void>) {
   const [actionError, setActionError] = React.useState('');
@@ -30,7 +31,7 @@ export function useBotActions(bots: BotStatus[], load: () => Promise<void>) {
         ? 'NO DAILY ORDER CAP.'
         : `Up to ${dailyLimit} live order attempts per UTC day, counted across both live bots.`;
     if (action === 'start' && selectedBot?.mode === 'live' && !window.confirm(
-      `Start ${selectedBot.name} with REAL MONEY? Up to ${budgetLabel} entry cost PER TRADE, plus exchange fees. Whole contracts. ${dailyLimitLabel} No daily loss stop. One attempt per market.`,
+      `Start ${botDisplayName(selectedBot)} with REAL MONEY? Up to ${budgetLabel} entry cost PER TRADE, plus exchange fees. Whole contracts. ${dailyLimitLabel} No daily loss stop. One attempt per market.`,
     )) return;
 
     try {

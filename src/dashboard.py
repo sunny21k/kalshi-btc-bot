@@ -63,7 +63,7 @@ RESULT_SYNC = {
 
 BOTS = {
     "btc15_paper": {
-        "name": "15m Paper Bot (NO Only)",
+        "name": "15m NO Only Paper",
         "script": "bot.py",
         "mode": "paper",
         "description": (
@@ -76,7 +76,7 @@ BOTS = {
         "defaultTradeBudget": PAPER_TRADE_BUDGET,
     },
     "btc15_dual_paper": {
-        "name": "15m YES/NO Paper Bot",
+        "name": "15m YES/NO Paper",
         "script": "dual_paper_bot.py",
         "mode": "paper",
         "description": (
@@ -90,7 +90,7 @@ BOTS = {
         "defaultTradeBudget": PAPER_TRADE_BUDGET,
     },
     "btc15_direction_paper": {
-        "name": "15m Direction Paper Bot",
+        "name": "15m Direction Paper",
         "script": "direction_paper_bot.py",
         "mode": "paper",
         "description": (
@@ -103,19 +103,19 @@ BOTS = {
         "defaultTradeBudget": PAPER_TRADE_BUDGET,
     },
     "btc15_live": {
-        "name": "15m Live Bot",
+        "name": "15m Early Live",
         "script": "bot.py",
         "mode": "live",
         "description": (
-            "Same 15-minute strategy, but submits real Kalshi orders with "
-            "live risk limits, daily cap, and live_trades.csv logging."
+            "Live 15-minute entries with an early YES rule: 9m/$70, "
+            "plus the 5m/$50 and 4m/$10 rules. One entry per market."
         ),
         "env": {"KALSHI_LIVE_TRADING": "true"},
         "budgetEnv": "KALSHI_LIVE_TRADE_BUDGET",
         "defaultTradeBudget": DEFAULT_LIVE_TRADE_BUDGET,
     },
     DUAL_LIVE_BOT_ID: {
-        "name": "15m YES/NO Live Bot",
+        "name": "15m YES/NO Live",
         "script": "dual_live_bot.py",
         "mode": "live",
         "description": (
@@ -127,7 +127,7 @@ BOTS = {
         "defaultTradeBudget": DEFAULT_LIVE_TRADE_BUDGET,
     },
     "scalp_paper": {
-        "name": "Scalp Paper Bot",
+        "name": "5s Scalp Paper",
         "script": "scalp_bot.py",
         "mode": "paper",
         "description": (

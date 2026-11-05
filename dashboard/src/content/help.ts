@@ -1,4 +1,5 @@
 import type { BotGuide, FaqQuestion } from '../types/help';
+import { BOT_NAMES } from './bots';
 
 export const GETTING_STARTED = [
   { title: 'Choose a paper bot', description: 'Open Bots and select a paper bot in the sidebar. Its description explains which entries and exits it uses.' },
@@ -7,12 +8,12 @@ export const GETTING_STARTED = [
 ];
 
 export const BOT_GUIDES: BotGuide[] = [
-  { name: '15m NO Only', mode: 'Paper', description: 'Tests NO entries in 15-minute BTC markets using the target-distance strategy. One entry per market.' },
-  { name: '15m YES / NO', mode: 'Paper', description: 'Tests both sides using the 4-minute/$10 and 5-minute/$50 rules, with price, momentum, confirmation, and spread checks.' },
-  { name: '15m Direction', mode: 'Paper', description: 'A separate YES/NO experiment. The 5-minute/$50 rule also requires three consecutive BTC moves: rising for YES or falling for NO. The 4-minute/$10 rule keeps its existing checks.' },
-  { name: '15m Live', mode: 'Live', description: 'The original live strategy. Uses the target-distance rules and retains the early upward-entry rule.' },
-  { name: 'YES / NO Live', mode: 'Live', description: 'Real YES/NO orders: the 4-minute/$10 rule allows 75–85¢ entries; the 5-minute/$50 rule allows 80–92¢. Uses the selected budget and shared live limits.' },
-  { name: 'Scalp Paper', mode: 'Paper', description: 'Uses short candle momentum for paper entries, then monitors stop-loss, trailing-profit, and candle-based exits. It can take multiple trades in a market.' },
+  { name: BOT_NAMES.btc15_paper, mode: 'Paper', description: 'Tests NO entries in 15-minute BTC markets using the target-distance strategy. One entry per market.' },
+  { name: BOT_NAMES.btc15_dual_paper, mode: 'Paper', description: 'Tests both sides using the 4-minute/$10 and 5-minute/$50 rules, with price, momentum, confirmation, and spread checks.' },
+  { name: BOT_NAMES.btc15_direction_paper, mode: 'Paper', description: 'A separate YES/NO experiment. The 5-minute/$50 rule also requires three consecutive BTC moves: rising for YES or falling for NO. The 4-minute/$10 rule keeps its existing checks.' },
+  { name: BOT_NAMES.scalp_paper, mode: 'Paper', description: 'Uses 5-second candle momentum with 15-second confirmation for paper entries, then monitors stop-loss, trailing-profit, and candle-based exits. It can take multiple trades in a market.' },
+  { name: BOT_NAMES.btc15_live, mode: 'Live', description: 'The original live strategy. Adds an early YES rule within 9 minutes at least $70 above the target, alongside the 5-minute/$50 and 4-minute/$10 rules.' },
+  { name: BOT_NAMES.btc15_dual_live, mode: 'Live', description: 'Real YES/NO orders: the 4-minute/$10 rule allows 75–85¢ entries; the 5-minute/$50 rule allows 80–92¢. Uses the selected budget and shared live limits.' },
 ];
 
 export const FAQ_QUESTIONS: FaqQuestion[] = [
@@ -29,6 +30,6 @@ export const FAQ_QUESTIONS: FaqQuestion[] = [
   { id: 'heartbeat', category: 'Activity', question: 'What do heartbeat and stale updates mean?', answer: 'The heartbeat shows when the bot last reported activity, and Price received shows the age of its latest BTC price. A process can still exist while its data is stale. Bot health highlights stale updates and retains the latest API error, including when it recovered.' },
   { id: 'stop', category: 'Controls', question: 'What happens when I press Stop or close the browser?', answer: 'Stop ends the selected bot process. It does not close existing live positions or cancel exchange orders. Closing the browser tab does not stop the bot server or its running processes; use the dashboard controls to stop managed bots.' },
   { id: 'multiple', category: 'Controls', question: 'Can I run more than one bot?', answer: 'Paper bots can run alongside a live bot. The dashboard permits one live bot process at a time. Bots started in a terminal must be stopped from that terminal.' },
-  { id: 'scalp-live', category: 'Basics', question: 'Can Scalp Paper place real orders?', answer: 'No. The scalp bot in this release is paper only. It records simulated entries and exits separately from the live bots.' },
+  { id: 'scalp-live', category: 'Basics', question: 'Can 5s Scalp place real orders?', answer: 'No. The scalp bot in this release is paper only. It records simulated entries and exits separately from the live bots.' },
   { id: 'hosted', category: 'Website', question: 'Can other people create accounts here yet?', answer: 'This release connects to your own bot server and does not include public accounts or shared hosting.' },
 ];

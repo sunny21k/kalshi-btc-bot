@@ -28,7 +28,7 @@ export function InfoPage({ section = 'overview' }: { section?: InfoSection }) {
         <section className="info-section" id="info/bots" aria-labelledby="bots-heading">
           <div className="info-section-heading"><h2 id="bots-heading">Meet the bots</h2><p>Each bot has its own workspace, health details, and results.</p></div>
           <div className="bot-guide-list">{BOT_GUIDES.map(bot => (
-            <article key={bot.name}><div className="bot-guide-name"><h3>{bot.name}</h3><span className={bot.mode === 'Live' ? 'money-negative' : 'muted-text'}>{bot.mode}</span></div><p>{bot.description}</p></article>
+            <article key={`${bot.mode}-${bot.name}`}><div className="bot-guide-name"><h3>{bot.name}</h3><span className={bot.mode === 'Live' ? 'money-negative' : 'muted-text'}>{bot.mode}</span></div><p>{bot.description}</p></article>
           ))}</div>
         </section>
         <FaqSection />

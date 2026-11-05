@@ -2,6 +2,7 @@ import React from 'react';
 import { Bot, Play, Square } from 'lucide-react';
 import type { BotAction, BotStatus } from '../../types/bots';
 import { BotDetails } from './BotDetails';
+import { botDisplayName } from '../../content/bots';
 
 export function BotControl({ bot, onAction }: { bot?: BotStatus; onAction: BotAction }) {
   const [budget, setBudget] = React.useState(bot?.tradeBudget ?? '1.00');
@@ -29,14 +30,15 @@ export function BotControl({ bot, onAction }: { bot?: BotStatus; onAction: BotAc
   const running = bot.running || externalRunning;
   const hasDailyLimit = bot.mode === 'live' && bot.dailyLiveOrderLimit !== undefined;
   const hasSettings = bot.supportsTradeBudget || hasDailyLimit;
+  const name = botDisplayName(bot);
 
   return (
-    <section className="bot-control" aria-label={`${bot.name} controls`}>
+    <section className="bot-control" aria-label={`${name} ${bot.mode} controls`}>
       <header className="bot-control-heading">
         <div className="bot-control-intro">
           <div className="bot-control-identity">
             <Bot size={17} className="muted-heading shrink-0" />
-            <h2>{bot.name}</h2>
+            <h2>{name}</h2>
           </div>
           <p className="bot-control-description muted-heading">{bot.description}</p>
         </div>
@@ -125,7 +127,7 @@ export function BotControl({ bot, onAction }: { bot?: BotStatus; onAction: BotAc
           <code>{bot.logFile}</code>
         </details>
       </div>
-      <BotDetails rules={bot.rules} name={bot.name} />
+      <BotDetails rules={bot.rules} name={name} />
     </section>
   );
 }

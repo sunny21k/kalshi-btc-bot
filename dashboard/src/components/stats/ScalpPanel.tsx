@@ -7,7 +7,7 @@ export function ScalpPanel({ stats }: { stats: ScalpStats }) {
   return (
     <section className="surface-panel border">
       <div className="table-header flex items-center justify-between border-b px-3 py-2">
-        <h2 className="section-title text-xs font-semibold uppercase tracking-wide">Scalp Paper</h2>
+        <h2 className="section-title text-xs font-semibold uppercase tracking-wide">5s Scalp</h2>
         <span className="muted-text text-xs font-semibold uppercase tracking-wide">5s momentum</span>
       </div>
       <div className="grid grid-cols-2 gap-1.5 p-3 lg:grid-cols-3 2xl:grid-cols-6">

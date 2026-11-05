@@ -7,6 +7,7 @@ import { dashboardFixture } from './helpers/fixtures.mjs';
 
 const { BotDetails } = await loadModule('../../src/components/bots/BotDetails.tsx');
 const { BotControl } = await loadModule('../../src/components/bots/BotControl.tsx');
+const { botDisplayName } = await loadModule('../../src/content/bots.ts');
 const render = (component, props) => renderToStaticMarkup(React.createElement(component, props));
 const profile = source => ({ schemaVersion: 1, botId: 'btc15_dual_live', mode: 'live', fingerprint: 'test', source,
   sections: [{ title: 'Entry rules', items: [{ label: '5-minute rule', detail: '80¢–92¢; BTC at least $50.00 from target.' }] }] });
@@ -27,7 +28,7 @@ test('all bot controls include their own details affordance', () => {
   for (const bot of dashboardFixture().bots) {
     const html = render(BotControl, { bot, onAction() { throw new Error('Opening details must not control a bot'); } });
     assert.match(html, /Bot Details/);
-    assert.ok(html.includes(`aria-label="${bot.name} trading rules"`));
+    assert.ok(html.includes(`aria-label="${botDisplayName(bot)} trading rules"`));
   }
 });
 
