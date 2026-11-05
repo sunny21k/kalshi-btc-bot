@@ -26,6 +26,7 @@ from live_execution import (
     quarantined_non_order_fragment,
 )
 from bot_telemetry import runtime_status
+from bot_rules import reported_rules
 from paper_execution import DIRECTION_TRADE_FILE, DUAL_TRADE_FILE, PAPER_TRADE_BUDGET
 from entry_context import attach_entry_directions
 from trade_direction_audit import REPORT_FILE as DIRECTION_AUDIT_FILE
@@ -131,7 +132,7 @@ BOTS = {
         "mode": "paper",
         "description": (
             "Fast paper-only bot using 5-second momentum with 15-second confirmation, "
-            "NO-only entries by default, trailing giveback exits, and a 3-cent stop."
+            "trailing giveback exits, and a stop loss."
         ),
         "env": {},
     },
@@ -444,11 +445,19 @@ def bot_statuses(*, ledger_rows=None):
             bot_id, running=running, pid=process.pid if process is not None else None,
             managed=process is not None,
         )
+        active_settings = (runtime.get('settings') or {}) if runtime.get('processAlive') else {}
+        rule_settings = {
+            'tradeBudget': active_settings.get('tradeBudget', str(BOT_TRADE_BUDGETS.get(bot_id, config.get('defaultTradeBudget', PAPER_TRADE_BUDGET)))),
+            'dailyLimit': active_settings.get('dailyLimit', daily_limit),
+        }
+        if isinstance(active_settings.get('scalp'), dict):
+            rule_settings['scalp'] = active_settings['scalp']
         statuses.append({
             "id": bot_id,
             "name": config["name"],
             "mode": config["mode"],
             "description": config["description"],
+            "rules": reported_rules(bot_id, runtime, settings=rule_settings),
             "running": running,
             "pid": process.pid if running else None,
             "returnCode": None if process is None or running else process.poll(),

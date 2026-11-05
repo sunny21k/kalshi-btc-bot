@@ -410,6 +410,24 @@ summary:focus-visible {
   margin-left: 0;
 }
 
+.bot-details { margin-top: 16px; padding-top: 13px; border-top: 1px solid var(--row-border); }
+.bot-details > summary { display: inline-flex; align-items: center; gap: 9px; color: var(--muted-strong); font-size: 12px; font-weight: 500; cursor: pointer; list-style: none; }
+.bot-details > summary::-webkit-details-marker { display: none; }
+.bot-details > summary:hover { color: var(--primary); }
+.bot-details > summary svg { transition: transform 120ms ease; }
+.bot-details[open] > summary svg { transform: rotate(180deg); }
+.bot-details-content { margin-top: 18px; }
+.bot-details-origin { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 16px; color: var(--muted); font-size: 10px; }
+.bot-details-note { margin-top: 10px; color: var(--muted-strong); font-size: 12px; line-height: 1.75; }
+.bot-rule-section { margin-top: 20px; }
+.bot-rule-section h3 { margin-bottom: 10px; font-size: 13px; font-weight: 600; }
+.bot-rule-section dl > div { display: grid; grid-template-columns: 145px minmax(0, 1fr); gap: 16px; border-top: 1px solid var(--row-border); padding: 11px 0; }
+.bot-rule-section dt { color: var(--muted-strong); font-size: 12px; font-weight: 500; }
+.bot-rule-section dd { color: var(--muted-strong); font-size: 12px; line-height: 1.75; }
+@container workspace (max-width: 540px) {
+  .bot-rule-section dl > div { grid-template-columns: minmax(0, 1fr); gap: 5px; }
+}
+
 .bot-diagnostics {
   display: grid;
   grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);

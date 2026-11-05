@@ -1,4 +1,14 @@
 type ErrorDetail = { message: string; type: string; source: string; at: string; active: boolean; recoveredAt?: string | null };
+export type BotRules = {
+  schemaVersion: number;
+  botId: string;
+  mode: string;
+  fingerprint: string;
+  sections: Array<{ title: string; items: Array<{ label: string; detail: string }> }>;
+  source: 'running' | 'current';
+  matchesCurrent?: boolean;
+  runningWithoutSnapshot?: boolean;
+};
 export type BotRuntime = {
   state: 'healthy' | 'degraded' | 'stale' | 'starting' | 'stopped';
   processAlive: boolean;
@@ -23,6 +33,7 @@ export type BotRuntime = {
 };
 
 export type BotStatus = {
+  rules?: BotRules;
   runtime?: BotRuntime;
   id: string;
   name: string;

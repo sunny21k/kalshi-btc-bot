@@ -65,7 +65,12 @@ def closed_candles(tick_store, *, now, seconds, limit=20):
 
 def main():
     initialize_scalp_file()
-    telemetry = BotTelemetry("scalp_paper", poll_seconds=POLL_SECONDS)
+    telemetry = BotTelemetry("scalp_paper", poll_seconds=POLL_SECONDS, settings={'scalp': {
+        'POLL_SECONDS': POLL_SECONDS, 'CONTRACTS': CONTRACTS, 'ALLOWED_SIDES': ALLOWED_SIDES,
+        'COOLDOWN_SECONDS': COOLDOWN_SECONDS, 'MIN_SECONDS_REMAINING': MIN_SECONDS_REMAINING,
+        'TRAILING_ACTIVATION': TRAILING_ACTIVATION, 'TRAILING_GIVEBACK': TRAILING_GIVEBACK,
+        'STOP_LOSS': STOP_LOSS,
+    }})
 
     print("Starting PAPER scalp bot...")
     print("This bot does not place live orders.")

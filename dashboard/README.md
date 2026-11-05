@@ -33,6 +33,12 @@ in `api/dashboard.ts`; importing or rendering components does not start a bot.
 The bot-actions hook retains input validation and the live-money confirmation.
 The chart library stays behind the `BotPerformance` lazy-loading boundary.
 
+`components/bots/BotDetails.tsx` renders the server-provided rule profile in a
+collapsed native disclosure inside each bot's control panel. Rule text comes
+from `src/bot_rules.py` in the repository root, using strategy constants and
+runtime settings. Running rule snapshots and current-code fallbacks are
+labeled separately; the frontend does not maintain another copy of thresholds.
+
 Click a trade row or its ID button to open the native modal dialog. Escape,
 the close button, or the backdrop dismisses it. `lib/entryMovement.ts` derives
 the displayed BTC movement details from saved observations; historical

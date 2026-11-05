@@ -1,7 +1,16 @@
 {
-  "version": "1.0.3",
-  "sourceHash": "d96fb21c2af55567a5f87a4d0b7fb2f74b39f0e4ffd639247757dfd00ddceead",
+  "version": "1.0.4",
+  "sourceHash": "c1bc0a2f316eb5eedcd4f9b7663b9ec2d20a8a00591a91d87e678c6a08c859fe",
   "releases": [
+    {
+      "version": "1.0.4",
+      "date": "2026-11-05",
+      "title": "Dashboard update",
+      "changes": [
+        "Added collapsible Bot Details for every bot with entry rules, filters, sizing, and exits.",
+        "Built rule descriptions from strategy settings and distinguished running snapshots from current-code rules."
+      ]
+    },
     {
       "version": "1.0.3",
       "date": "2026-11-05",

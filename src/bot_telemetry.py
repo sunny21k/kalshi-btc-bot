@@ -5,6 +5,7 @@ import os
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
+from bot_rules import build_bot_rules
 
 
 STATUS_DIR = Path(__file__).resolve().parents[1] / "data" / "bot_status"
@@ -26,8 +27,13 @@ class BotTelemetry:
             "staleAfterSeconds": max(45, float(poll_seconds) * 5),
             "stage": "Starting", "price": None, "market": {},
             "decision": None, "lastError": None, "lastApiError": None,
-            "settings": settings or {},
+            "settings": dict(settings or {}),
         }
+        try:
+            self.data['settings']['ruleSnapshot'] = build_bot_rules(bot_id, settings=self.data['settings'], poll_seconds=poll_seconds)
+        except Exception:
+            # Optional rule reporting must never change whether a bot can run.
+            pass
         self.save()
 
     def save(self):

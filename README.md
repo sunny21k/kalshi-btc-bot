@@ -201,6 +201,19 @@ transport follows the [Kalshi V2 order API](https://docs.kalshi.com/api-referenc
 
 ## Performance Charts And Calendar
 
+Each bot has a collapsed **Bot Details** section below its controls. Expand it
+to see its entry bands, BTC distance and timing rules, rule priority, momentum
+checks, sizing, order behavior, and exits. Scalp details include configured
+side restrictions, candle checks, cooldown, and total-position exit thresholds.
+Descriptions are built from Python strategy constants and selected settings.
+
+Newly started bots include a rule snapshot in their health data. While that
+process is running, the dashboard shows its saved snapshot, including when
+current launch settings differ. Older processes without a snapshot are
+explicitly labeled as showing current-code rules. Restart the dashboard once
+to expose rule details through its API; a bot captures a snapshot at its next
+start. Viewing details performs no exchange requests or bot commands.
+
 Each paper, live, and scalp bot has its own performance section above trade
 history. Switch between daily bars and a cumulative P/L curve, and choose
 Month, 7D, 30D, or All. Cumulative P/L is calculated within the selected

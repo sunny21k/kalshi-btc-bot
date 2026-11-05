@@ -1,6 +1,7 @@
 import React from 'react';
 import { Bot, Play, Square } from 'lucide-react';
 import type { BotAction, BotStatus } from '../../types/bots';
+import { BotDetails } from './BotDetails';
 
 export function BotControl({ bot, onAction }: { bot?: BotStatus; onAction: BotAction }) {
   const [budget, setBudget] = React.useState(bot?.tradeBudget ?? '1.00');
@@ -124,6 +125,7 @@ export function BotControl({ bot, onAction }: { bot?: BotStatus; onAction: BotAc
           <code>{bot.logFile}</code>
         </details>
       </div>
+      <BotDetails rules={bot.rules} name={bot.name} />
     </section>
   );
 }
