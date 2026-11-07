@@ -6,7 +6,7 @@ import { TickerLabel } from './TickerLabel';
 import { EntryDirection } from './EntryDirection';
 import { TradeDetails } from './TradeDetails';
 
-export function RecentTrades({ title, rows, live }: { title: string; rows: TradeRow[]; live?: boolean }) {
+export function RecentTrades({ title, rows, live, botId }: { title: string; rows: TradeRow[]; live?: boolean; botId?: string }) {
   const items = rows ?? [];
   const [selected, setSelected] = React.useState<TradeRow | null>(null);
   const current = selected ? items.find(row => row.trade_id && row.trade_id === selected.trade_id) ?? selected : null;
@@ -50,6 +50,6 @@ export function RecentTrades({ title, rows, live }: { title: string; rows: Trade
           </tr>
         )}
       </tbody>
-    </TradeTable>{current && <TradeDetails row={current} live={live} onClose={() => setSelected(null)} />}</>
+    </TradeTable>{current && <TradeDetails row={current} live={live} botId={botId} onClose={() => setSelected(null)} />}</>
   );
 }

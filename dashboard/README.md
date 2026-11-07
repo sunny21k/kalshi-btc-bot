@@ -46,6 +46,15 @@ the displayed BTC movement details from saved observations; historical
 reconstructions stay labeled as inferred. Currency presentation uses two
 decimals while numeric source data stays unchanged.
 
+`components/trades/TradeReplay.tsx` loads a read-only replay only when its tab
+is opened. The full market option spans the actual 15-minute period; the close-up
+option shows two minutes on each side of entry. `ReplayChart.tsx` draws sampled BTC candles and contract
+quotes; `lib/tradeReplay.ts` aggregates only observations revealed by the playback
+cursor. The API prepares a local incremental observation index in the background.
+Missing samples remain gaps, and legacy shared logs stay labeled reconstructed.
+Timeline bounds, candle widths, seeking, and market clock ticks follow the
+selected period; playback is not fixed to a four-minute span.
+
 `components/bots/BotSettings.tsx` edits saved preferences in a separate popup.
 `EntryRuleEditor.tsx` and `lib/botSettings.ts` manage rule forms and validation.
 Saving posts to `/api/bots/settings` and does not start or stop a bot. The Python

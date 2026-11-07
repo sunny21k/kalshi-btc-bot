@@ -9,6 +9,7 @@ from bot_rules import build_bot_rules
 
 
 STATUS_DIR = Path(__file__).resolve().parents[1] / "data" / "bot_status"
+REPLAY_DIR = Path(__file__).resolve().parents[1] / "data" / "replay"
 BOT_IDS = {"btc15_paper", "btc15_dual_paper", "btc15_direction_paper", "btc15_live", "btc15_dual_live", "scalp_paper"}
 
 
@@ -85,6 +86,26 @@ class BotTelemetry:
             self.data["lastError"].update(active=False, recoveredAt=timestamp())
         self.data.update(heartbeatAt=timestamp(), stage="Watching market")
         self.save()
+
+    def replay(self, *, yes_bid=None, no_bid=None):
+        """Keep this bot's sampled market/decision observations for trade replay."""
+        try:
+            at = timestamp()
+            market, price, decision = self.data['market'], self.data['price'] or {}, self.data['decision'] or {}
+            if not market.get('ticker') or not price.get('value'):
+                return
+            row = dict(schemaVersion=1, timestamp=at, bot_id=self.data['botId'],
+                run_id=f"{self.data['pid']}:{self.data['startedAt']}", ticker=market['ticker'],
+                btc_price=price['value'], btc_observed_at=price.get('at'), target_price=market.get('targetPrice'), market_close_at=market.get('closeAt'),
+                seconds_remaining=market.get('secondsRemaining'), yes_bid=yes_bid, yes_ask=market.get('yesAsk'),
+                no_bid=no_bid, no_ask=market.get('noAsk'), spread=market.get('spread'),
+                decision=decision.get('action', ''), reason=decision.get('reason', ''), strategy_name=decision.get('strategy', ''))
+            path = REPLAY_DIR / self.data['botId'] / f'{at[:10]}.jsonl'
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open('a') as file:
+                file.write(json.dumps(row, default=str, allow_nan=False) + '\n')
+        except (OSError, TypeError, ValueError):
+            pass  # Optional diagnostics must not change order behavior.
 
     def failure(self, error, *, source, api=False):
         detail = {

@@ -12,7 +12,8 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
+from trade_replay import ReplayService
 
 from live_execution import (
     DUAL_LIVE_BOT_ID,
@@ -55,6 +56,7 @@ BOT_DAILY_LIVE_LIMITS = {}
 BOT_ENTRY_PRICE_RANGES = {}
 BOT_ENTRY_RULES = {}
 UNSET_ENTRY_RANGE = object()
+REPLAY_SERVICES = {}
 STARTUP_CHECK_SECONDS = 0.35
 RESULT_SYNC_LOCK = threading.Lock()
 RESULT_SYNC_CANCEL = threading.Event()
@@ -690,6 +692,19 @@ def json_response(handler, payload, status=200):
     handler.wfile.write(body)
 
 
+def replay_response(query):
+    bot_id, trade_id = query.get('botId', [''])[0], query.get('tradeId', [''])[0]
+    if bot_id not in BOTS or not isinstance(trade_id, str) or not 1 <= len(trade_id) <= 160:
+        return {'message': 'Choose a valid bot and trade for replay'}, 400
+    try:
+        service = REPLAY_SERVICES.setdefault(str(ROOT), ReplayService(ROOT))
+        return service.replay(bot_id, trade_id, refresh=query.get('refresh', ['0'])[0] == '1', window=query.get('window', ['entry'])[0])
+    except LookupError as exc:
+        return {'message': str(exc)}, 404
+    except (ValueError, OSError) as exc:
+        return {'message': str(exc)}, 400
+
+
 class DashboardHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         return
@@ -701,6 +716,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/results/status":
             json_response(self, result_sync_status())
+            return
+        if path == '/api/trades/replay':
+            payload, status = replay_response(parse_qs(urlparse(self.path).query))
+            json_response(self, payload, status=status)
             return
 
         requested = "index.html" if path == "/" else path.lstrip("/")

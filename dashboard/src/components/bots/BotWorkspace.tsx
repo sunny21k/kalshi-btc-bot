@@ -28,7 +28,7 @@ export function BotWorkspace({ active, data, onAction, onSettingsSaved }: { acti
           <BotDiagnostics runtime={botById[active]?.runtime} />
           <TradePanel title={title} stats={stats} />
         </div>
-        <RecentTrades title="Recent Paper Trades" rows={stats.recent} />
+        <RecentTrades title="Recent Paper Trades" rows={stats.recent} botId={active} />
         <BucketTable title="Paper by Strategy" buckets={stats.byStrategy} />
       </div>
     );
@@ -44,7 +44,7 @@ export function BotWorkspace({ active, data, onAction, onSettingsSaved }: { acti
           <BotDiagnostics runtime={botById[active]?.runtime} />
           <TradePanel title={`${BOT_NAMES[active]} live trading`} stats={stats} live />
         </div>
-        <RecentTrades title="Recent Live Orders" rows={stats.recent} live />
+        <RecentTrades title="Recent Live Orders" rows={stats.recent} live botId={active} />
         <BucketTable title="Live by Strategy" buckets={stats.byStrategy} />
         <RiskNotes dailyLimit={botById[active]?.dailyLiveOrderLimit} />
       </div>

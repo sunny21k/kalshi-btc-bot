@@ -1,7 +1,17 @@
 {
-  "version": "1.1.0",
-  "sourceHash": "41f092087c9174a91aabca3eb02a138c56fc794a4930d306209aad95fefeba75",
+  "version": "1.1.2",
+  "sourceHash": "6c7f08a1cab50da16df89ec531750f97244f1d2c5db903ddffab75358f03f1f9",
   "releases": [
+    {
+      "version": "1.1.2",
+      "date": "2026-11-06",
+      "title": "Dashboard update",
+      "changes": [
+        "Added full 15-minute market replay from start to close, with the entry marker and an optional two-minute entry close-up.",
+        "Added trade replay with sampled BTC candles, contract quotes, playback controls, and a two-minute window on each side of entry.",
+        "Added separate per-bot observation recording and read-only historical reconstruction with explicit data-gap and source labels."
+      ]
+    },
     {
       "version": "1.1.0",
       "date": "2026-11-05",

@@ -1,5 +1,6 @@
 import type { BotCommand, EntryPriceRange, BotPreferences } from '../types/bots';
 import type { DashboardStats, ResultSync } from '../types/dashboard';
+import type { ReplayResponse, ReplayWindow } from '../types/replay';
 
 type SyncResponse = { resultSync?: ResultSync; error?: string };
 
@@ -20,6 +21,11 @@ function postJson<T>(path: string, body: object, fallbackError: string): Promise
 
 export function fetchDashboardStats() {
   return requestJson<DashboardStats>('/api/stats', 'Could not load dashboard');
+}
+
+export function fetchTradeReplay(botId: string, tradeId: string, refresh = false, signal?: AbortSignal, window: ReplayWindow = 'entry') {
+  const query = new URLSearchParams({ botId, tradeId, ...(refresh ? { refresh: '1' } : {}), window });
+  return requestJson<ReplayResponse>(`/api/trades/replay?${query}`, 'Could not load trade replay', { signal });
 }
 
 export function fetchResultSync() {

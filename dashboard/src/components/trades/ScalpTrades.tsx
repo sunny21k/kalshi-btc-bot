@@ -37,6 +37,6 @@ export function ScalpTrades({ rows }: { rows: TradeRow[] }) {
           </tr>
         )}
       </tbody>
-    </TradeTable>{current && <TradeDetails row={current} onClose={() => setSelected(null)} />}</>
+    </TradeTable>{current && <TradeDetails row={current} botId="scalp_paper" onClose={() => setSelected(null)} />}</>
   );
 }

@@ -356,6 +356,7 @@ def main(
                 decision, trade_signal["reason"], side=trade_signal.get("side", ""),
                 strategy=trade_signal.get("strategy_name", ""),
             )
+            telemetry.replay(yes_bid=yes_bid, no_bid=no_bid)
             entry_price = trade_signal["entry_price"]
             price_difference = trade_signal["price_difference"]
             model_probability = entry_price or Decimal("0.50")

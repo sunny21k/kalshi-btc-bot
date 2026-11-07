@@ -3,8 +3,11 @@ import type { TradeRow } from '../../types/trades';
 import { entryMovement } from '../../lib/entryMovement';
 import { fmtDateTime, tableMoney } from '../../utils/format';
 import { PopupCard } from '../layout/PopupCard';
+const TradeReplay = React.lazy(() => import('./TradeReplay').then(module => ({ default: module.TradeReplay })));
 
-export function TradeDetails({ row, live = false, onClose }: { row: TradeRow; live?: boolean; onClose: () => void }) {
+export function TradeDetails({ row, live = false, botId, onClose }: { row: TradeRow; live?: boolean; botId?: string; onClose: () => void }) {
+  const [view, setView] = React.useState<'details' | 'replay'>('details');
+  const replayBot = botId || row.bot_id;
   const movement = entryMovement(row);
   const dollars = (amount: number | null, signed = false) => amount === null ? '--' : tableMoney(String(amount), signed);
   const detail = (label: string, content: React.ReactNode) => <div key={label}><dt>{label}</dt><dd>{content || '--'}</dd></div>;
@@ -13,6 +16,12 @@ export function TradeDetails({ row, live = false, onClose }: { row: TradeRow; li
   return (
     <PopupCard title={live ? 'Live order details' : row.event ? 'Scalp trade details' : 'Paper trade details'}
       subtitle={row.ticker} closeLabel="Close trade details" onClose={onClose}>
+        <div className="trade-detail-tabs" aria-label="Trade detail views">
+          <button type="button" aria-pressed={view === 'details'} onClick={() => setView('details')}>Details</button>
+          <button type="button" aria-pressed={view === 'replay'} disabled={!replayBot || !row.trade_id}
+            title={!replayBot || !row.trade_id ? 'A bot and saved trade ID are required for replay' : 'Replay the full market or two minutes around entry'} onClick={() => setView('replay')}>Replay</button>
+        </div>
+        {view === 'replay' && replayBot ? <React.Suspense fallback={<p role="status" className="muted-text">Loading replay…</p>}><TradeReplay botId={replayBot} tradeId={row.trade_id} /></React.Suspense> : <>
         <dl className="trade-detail-facts">
           {detail(hasFill ? 'Purchased side' : 'Requested side', row.side)}
           {detail('Entry price', tableMoney(row.entry_price))}
@@ -48,6 +57,7 @@ export function TradeDetails({ row, live = false, onClose }: { row: TradeRow; li
         </section>
         <div className="trade-detail-identifiers"><div><span>Trade ID</span><code>{row.trade_id || '--'}</code></div>{live && row.order_id && <div><span>Exchange order ID</span><code>{row.order_id}</code></div>}</div>
         {(row.sync_error || row.error) && <p className="money-negative trade-detail-error">{row.sync_error || row.error}</p>}
+        </>}
     </PopupCard>
   );
 }

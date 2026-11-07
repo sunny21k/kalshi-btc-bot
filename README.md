@@ -29,6 +29,31 @@ use the selected bot's saved preferences rather than inherited price overrides.
 page outside a card to scroll the background, or over the card to scroll its
 contents. Close with Escape, the close button, or a click outside the card.
 
+## Trade replay
+
+Click a trade row and choose **Replay**. The default **Full 15-minute market**
+view spans the actual period's start through its close, with the entry marker
+at its real time. Choose **±2 minutes around entry** for the closer view.
+Play, pause, or scrub using 5-second, 15-second, or 1-minute sampled BTC candles.
+The replay also shows the purchased contract's
+bid/ask quotes, countdown, BTC distance from target, and matching decisions.
+
+Historical shared logs cannot identify the exact bot and are labeled
+**reconstructed**. Target prices and complementary quotes are inferred where
+possible. Missing data stays missing. Sampled candle highs/lows do not include
+price moves that happened between observations. Live markers use the logged
+order-attempt time; exact exchange fill timestamps were not recorded.
+Full-period boundaries use recorded close metadata, the market ticker in New
+York time, or a recorded countdown. An unavailable boundary is reported rather
+than replaced with a guessed period; the entry-centered view remains available.
+
+Restart the updated dashboard to load replay. Restart a bot to begin its own
+daily observation logs in `data/replay/<bot_id>/<UTC-date>.jsonl`. Existing bots
+continue running their loaded code until restarted. Replay prepares an
+incremental local cache in `data/replay_index.sqlite3`; initial preparation runs
+in the background and leaves source logs and trade CSVs intact. Replay does not
+submit orders or reconcile exchange results.
+
 ## YES/NO Paper Bot
 
 Run from the project root with the virtual environment active:

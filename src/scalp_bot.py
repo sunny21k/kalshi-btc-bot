@@ -275,6 +275,7 @@ def main():
                     position = None
                     cooldown_until = now + COOLDOWN_SECONDS
 
+            telemetry.replay(yes_bid=yes_bid, no_bid=no_bid)
             time.sleep(float(POLL_SECONDS))
 
         except KeyboardInterrupt:
